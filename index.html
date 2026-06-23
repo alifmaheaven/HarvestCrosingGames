@@ -253,6 +253,14 @@ html,body{
 #photo-exit{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(var(--safe-b) + 16px);
   display:none;z-index:70;padding:12px 20px;border:none;border-radius:16px;
   background:rgba(74,59,42,.9);color:#fff6da;font-weight:700;font-size:14px;}
+
+/* object/building name labels (transparent bg, readable text) */
+#labels{position:fixed;inset:0;pointer-events:none;}
+.obj-label{position:absolute;transform:translate(-50%,-100%);pointer-events:none;
+  background:rgba(40,30,20,.32);color:#fff;font-size:11px;font-weight:700;
+  padding:2px 8px;border-radius:10px;white-space:nowrap;
+  text-shadow:0 1px 2px rgba(0,0,0,.85),0 0 2px rgba(0,0,0,.6);
+  border:1px solid rgba(255,255,255,.18);will-change:left,top,opacity;}
 </style>
 </head>
 <body>
@@ -271,6 +279,7 @@ html,body{
   <div id="decor-bar"></div>
   <div id="save-dot">💾</div>
   <div id="tip"></div>
+  <div id="labels"></div>
 </div>
 <button id="photo-exit">📷 Keluar Mode Foto</button>
 
@@ -562,6 +571,7 @@ function defaultSave(){
     plotsExpanded:false,                 // 3x3 -> extra plots (TODO simple)
     ranch:{                              // upgradeable barn (mammals) + coop (chickens)
       barnLevel:1, coopLevel:1, nextId:4,
+      feeder:{fill:0,max:60},            // auto-feeder trough fuel
       animals:[                          // {id,type,name,mood,last,ready}
         {id:1,type:'sapi', name:null,mood:60,last:0,ready:false},
         {id:2,type:'ayam', name:null,mood:60,last:0,ready:false},
@@ -624,6 +634,7 @@ const SaveManager = {
       data.ranch.coopLevel=data.ranch.coopLevel||1;
       data.ranch.animals=data.ranch.animals||[];
       data.ranch.nextId=data.ranch.nextId||(data.ranch.animals.length+1);
+      data.ranch.feeder=data.ranch.feeder||{fill:0,max:60};
       data.shopDeal=Object.assign({day:0,id:null}, data.shopDeal);
       data.stats=Object.assign({eggCollected:false,dishesCooked:0,fishCaught:0}, data.stats);
       data.totals=Object.assign({harvest:0,fish:0,cook:0,coins:0,pet:0,sold:0}, data.totals);
@@ -1060,6 +1071,14 @@ const Builders = {
       w.position.x=s*0.13; w.rotation.y=s*0.7; g.add(w); g.userData[s>0?'wR':'wL']=w; });
     return g;
   },
+  // feed trough (auto-feeder); hay child toggles with fill level
+  trough(){
+    const g=new THREE.Group();
+    const box=new THREE.Mesh(new THREE.BoxGeometry(1.4,0.35,0.6),mat(0x8a6034)); box.position.y=0.2; g.add(box);
+    const inner=new THREE.Mesh(new THREE.BoxGeometry(1.2,0.2,0.42),mat(0x5b4636)); inner.position.y=0.3; g.add(inner);
+    const hay=new THREE.Mesh(new THREE.BoxGeometry(1.1,0.18,0.36),mat(0xffd35e)); hay.position.y=0.36; hay.visible=false; g.add(hay); g.userData.hay=hay;
+    return g;
+  },
   // diggable mound with an X mark
   digSpot(){
     const g=new THREE.Group();
@@ -1099,7 +1118,7 @@ const World = {
   player:null, playerPos:new THREE.Vector3(0,0,4),
   interactables:[],          // {hit, root, kind, data, range, label}
   plotMeshes:[], animalObjs:{}, npcObjs:{}, customers:[], tables:[],
-  signMesh:null, bedMesh:null, shipMesh:null,
+  signMesh:null, bedMesh:null, shipMesh:null, troughMesh:null, labels:[],
   raycaster:new THREE.Raycaster(),
 
   // register an interactable with an oversized invisible hitbox (~44px feel)
@@ -1164,31 +1183,32 @@ const World = {
 
     // ---- kitchen ----
     const kitchen=Builders.kitchen(); kitchen.position.set(8,0,-5); sc.add(kitchen);
-    this.register(kitchen,'kitchen',{},2.4,2.6);
+    this.register(kitchen,'kitchen',{},2.4,2.6); this.addLabel('🍳 Dapur', kitchen, 1.8);
 
     // ---- restaurant tables ----
     const tspots=[[8,3],[11,5]];
     tspots.forEach((p,i)=>{const t=Builders.restaurantTable();t.position.set(p[0],0,p[1]);sc.add(t);this.tables.push({obj:t,occupied:null});});
+    this.addLabel('🍽️ Restoran', this.tables[0].obj, 1.6);
 
     // ---- shop & shipping bin ----
     const shop=Builders.shop(); shop.position.set(5,0,8); sc.add(shop);
-    this.register(shop,'shop',{},2.2,2.4);
+    this.register(shop,'shop',{},2.2,2.4); this.addLabel('🛒 Toko', shop, 2.0);
     const bin=Builders.shippingBin(); bin.position.set(2,0,9); sc.add(bin); this.shipMesh=bin;
-    this.register(bin,'shipping',{},1.8,1.6);
+    this.register(bin,'shipping',{},1.8,1.6); this.addLabel('📦 Kotak Kirim', bin, 1.3);
 
     // ---- house + bed ----
-    const house=Builders.house(); house.position.set(-6,0,8); sc.add(house);
+    const house=Builders.house(); house.position.set(-6,0,8); sc.add(house); this.addLabel('🏠 Rumah', house, 3.6);
     const bed=Builders.bed(); bed.position.set(-6,0,11.5); sc.add(bed); this.bedMesh=bed;
-    this.register(bed,'bed',{},2.0,2.0);
+    this.register(bed,'bed',{},2.0,2.0); this.addLabel('🛏️ Kasur (tidur)', bed, 1.2);
 
     // ---- wardrobe (customization) ----
     const wardrobe=new THREE.Mesh(new THREE.BoxGeometry(1,2,0.8),mat(0x9b6bd6));
     wardrobe.position.set(-3.6,1,8); wardrobe.castShadow=true; sc.add(wardrobe);
-    this.register(wardrobe,'wardrobe',{},1.8,1.6);
+    this.register(wardrobe,'wardrobe',{},1.8,1.6); this.addLabel('👕 Lemari', wardrobe, 1.6);
 
     // ---- signboard with farm name ----
     const sign=Builders.signboard(); sign.position.set(0,0,12.5); sc.add(sign); this.signMesh=sign;
-    this.register(sign,'sign',{},1.8,1.6);
+    this.register(sign,'sign',{},1.8,1.6); this.addLabel('🪧 Papan Nama', sign, 1.8);
     this.updateSign();
 
     // ---- NPCs ----
@@ -1213,14 +1233,37 @@ const World = {
   buildRanch(){
     const sc=SceneSetup.scene;
     const barn=Builders.coop(); barn.position.set(-9,0,-6.5); barn.scale.set(1.15,1.15,1.15); sc.add(barn); this.barnMesh=barn;
-    this.register(barn,'barn',{},2.8,3.2);
+    this.register(barn,'barn',{},2.8,3.2); this.addLabel('🐄 Kandang', barn, 3.4);
     const coop=Builders.coop(); coop.position.set(-14.5,0,-5); coop.scale.set(0.7,0.7,0.7); sc.add(coop); this.coopMesh=coop;
-    this.register(coop,'coop',{},2.4,2.2);
-    // signs
+    this.register(coop,'coop',{},2.4,2.2); this.addLabel('🐔 Kandang Ayam', coop, 2.2);
+    // fenced paddock around the grazing yard
+    this.buildPaddock();
+    // feed trough (auto-feeder)
+    const trough=Builders.trough(); trough.position.set(-12,0,0.6); sc.add(trough); this.troughMesh=trough;
+    this.register(trough,'feeder',{},1.9,1.8); this.addLabel('🪣 Palung', trough, 1.2);
+    this.setTroughHay(GS.data.ranch.feeder.fill>0);
+    // animals
     this.animalObjs={};
     GS.data.ranch.animals.forEach(a=>this.spawnAnimal(a));
     this.layoutAnimals();
     AnimalSys.refreshIndicators();
+  },
+  buildPaddock(){
+    // instanced low fence around rectangle, with a gate gap on the south side
+    const x0=-16.8,x1=-6.8,z0=-3.6,z1=2.2, step=0.8, pts=[];
+    for(let x=x0;x<=x1+0.01;x+=step){ pts.push([x,z0]); if(!(x>-12.4&&x<-10.4)) pts.push([x,z1]); } // gate gap
+    for(let z=z0;z<=z1+0.01;z+=step){ pts.push([x0,z]); pts.push([x1,z]); }
+    const inst=new THREE.InstancedMesh(new THREE.BoxGeometry(0.12,0.7,0.12),mat(0xc9a875),pts.length);
+    const d=new THREE.Object3D();
+    pts.forEach(([x,z],i)=>{ d.position.set(x,0.35,z); d.updateMatrix(); inst.setMatrixAt(i,d.matrix); });
+    inst.castShadow=true; SceneSetup.scene.add(inst);
+  },
+  setTroughHay(on){ if(this.troughMesh&&this.troughMesh.userData.hay) this.troughMesh.userData.hay.visible=on; },
+  // register a floating name label tied to an object (shown when player is near)
+  addLabel(name, obj, y){
+    const el=document.createElement('div'); el.className='obj-label'; el.textContent=name;
+    el.style.opacity='0'; const cont=Util.$('#labels'); if(cont) cont.appendChild(el);
+    this.labels.push({name, obj, y:y||2, el});
   },
   spawnAnimal(a){
     const build={sapi:'cow',domba:'sheep',ayam:'chicken'}[a.type];
@@ -1232,9 +1275,9 @@ const World = {
     const mam=GS.data.ranch.animals.filter(a=>a.type!=='ayam');
     const chk=GS.data.ranch.animals.filter(a=>a.type==='ayam');
     mam.forEach((a,i)=>{ const m=this.animalObjs[a.id]; if(!m) return; const col=i%3,row=Math.floor(i/3);
-      m.position.set(-11+col*1.9, 0, -2.6+row*1.9); });
+      m.position.set(-11+col*1.9, 0, -2.6+row*1.9); m.userData.wt=null; });
     chk.forEach((a,i)=>{ const m=this.animalObjs[a.id]; if(!m) return; const col=i%3,row=Math.floor(i/3);
-      m.position.set(-16+col*1.2, 0, -2.4+row*1.2); });
+      m.position.set(-16+col*1.2, 0, -2.4+row*1.2); m.userData.wt=null; });
     GS.data.ranch.animals.forEach(a=>{ const m=this.animalObjs[a.id]; if(m&&m.userData.entry) m.userData.entry.hit.position.set(m.position.x,0.6,m.position.z); });
   },
 
@@ -1318,6 +1361,7 @@ const World = {
     sc.add(rim);
     for(let i=0;i<4;i++){ const pad=new THREE.Mesh(new THREE.CircleGeometry(0.3,10),mat(0x4f9e4f)); pad.rotation.x=-Math.PI/2; pad.position.set(cx+Util.rand(-1.4,1.4),0.08,cz+Util.rand(-1.4,1.4)); sc.add(pad); }
     this.register(water,'water',{spot:'Kolam'},3.2,3.0);   // fishing spot
+    this.addLabel('🎣 Kolam', water, 0.9);
     this._buildDock(cx,cz-2.7,0);
   },
   // a second fishing lake with reeds + a dock, for variety
@@ -1327,6 +1371,7 @@ const World = {
     water.rotation.x=-Math.PI/2; water.position.set(cx,0.06,cz); sc.add(water);
     for(let i=0;i<10;i++){ const a=i/10*6.28; const reed=new THREE.Mesh(new THREE.CylinderGeometry(0.03,0.03,0.8,4),mat(0x4f8f3f)); reed.position.set(cx+Math.cos(a)*3.3,0.4,cz+Math.sin(a)*3.3); sc.add(reed); }
     this.register(water,'water',{spot:'Danau'},3.6,3.2);
+    this.addLabel('🎣 Danau', water, 0.9);
     this._buildDock(cx,cz-3.5,0);
   },
   // small wooden pier (decorative; sits beside a water spot)
@@ -1359,7 +1404,7 @@ const World = {
     const mbFlag=new THREE.Mesh(new THREE.BoxGeometry(0.04,0.18,0.12),mat(0xffd35e)); mbFlag.position.set(0.16,0.95,0.1); mb.add(mbFlag);
     mb.position.set(-4,0,9.4); mb.traverse(o=>{if(o.isMesh)o.castShadow=true;}); sc.add(mb);
     World.mailFlag=mbFlag;                       // raised when a daily gift waits
-    this.register(mb,'mailbox',{},2.0,1.8);
+    this.register(mb,'mailbox',{},2.0,1.8); this.addLabel('📬 Kotak Surat', mb, 1.4);
     // lamp posts along the path (glow at night)
     this.lamps=[];
     [[3,2],[-3,-2],[3,-6],[-3,6],[3,10],[-3,12]].forEach(([x,z])=>{
@@ -1392,14 +1437,14 @@ const World = {
     const hole=new THREE.Mesh(new THREE.CylinderGeometry(0.7,0.7,0.72,14),mat(0x2b3a4a)); hole.position.y=0.4; well.add(hole);
     [-0.8,0.8].forEach(x=>{const p=new THREE.Mesh(new THREE.CylinderGeometry(0.08,0.08,1.4,6),mat(0x8a6034));p.position.set(x,1.1,0);well.add(p);});
     const roof=new THREE.Mesh(new THREE.ConeGeometry(1.1,0.7,4),mat(0xc0524a)); roof.position.y=2; roof.rotation.y=Math.PI/4; well.add(roof);
-    well.position.set(-14,0,7); well.traverse(o=>{if(o.isMesh)o.castShadow=true;}); sc.add(well);
+    well.position.set(-14,0,7); well.traverse(o=>{if(o.isMesh)o.castShadow=true;}); sc.add(well); this.addLabel('🪣 Sumur', well, 2.6);
     // --- windmill (rotating blades) ---
     const wm=new THREE.Group();
     const tower=new THREE.Mesh(new THREE.CylinderGeometry(0.7,1.1,4.2,8),mat(0xeee4cf)); tower.position.y=2.1; wm.add(tower);
     const cap=new THREE.Mesh(new THREE.ConeGeometry(0.95,1,8),mat(0xc0524a)); cap.position.y=4.5; wm.add(cap);
     const blades=new THREE.Group(); blades.position.set(0,4,0.9);
     for(let i=0;i<4;i++){ const bl=new THREE.Mesh(new THREE.BoxGeometry(0.2,2.4,0.08),mat(0xf3ead3)); bl.position.y=1.2; const arm=new THREE.Group(); arm.add(bl); arm.rotation.z=i*Math.PI/2; blades.add(arm); }
-    wm.add(blades); wm.position.set(16,0,14); wm.traverse(o=>{if(o.isMesh)o.castShadow=true;}); sc.add(wm);
+    wm.add(blades); wm.position.set(16,0,14); wm.traverse(o=>{if(o.isMesh)o.castShadow=true;}); sc.add(wm); this.addLabel('🌬️ Kincir Angin', wm, 5.4);
     this.windmill=blades;
     // --- scarecrow in the farm ---
     const sca=new THREE.Group();
@@ -1839,12 +1884,35 @@ const AnimalSys={
     if(prod==='susu') return new THREE.Mesh(new THREE.CylinderGeometry(0.12,0.12,0.28,8),mat(0xffffff));
     return new THREE.Mesh(new THREE.SphereGeometry(0.2,8,6),mat(0xf0f0f0)); },
   refreshIndicators(){ GS.data.ranch.animals.forEach(a=>{ if(a.ready) this.setReady(a,true); }); },
-  // mood decay + becoming "ready" to produce when happy
+  // mood decay + becoming "ready" to produce when happy + auto-feeder
+  _feedT:0,
+  PADDOCK:{minX:-16.3,maxX:-7.3,minZ:-3.1,maxZ:1.9},
   tick(dt){ GS.data.ranch.animals.forEach(a=>{ a.mood=Util.clamp(a.mood-0.5*dt,0,100);
     if(!a.ready && a.mood>70 && (GS.time-(a.last||0))>ANIMAL_DEF[a.type].interval){
       a.ready=true; a.last=GS.time; this.setReady(a,true);
       const m=World.animalObjs[a.id]; if(m){ UI.popAt(PRODUCTS[ANIMAL_DEF[a.type].product].emoji,m.position); Audio.sfx('pop'); }
-    } }); }
+    } });
+    // auto-feeder: while filled, gently tops up everyone's mood
+    const f=GS.data.ranch.feeder;
+    if(f && f.fill>0){ this._feedT+=dt; if(this._feedT>5){ this._feedT=0;
+      GS.data.ranch.animals.forEach(a=>a.mood=Util.clamp(a.mood+4,0,100));
+      f.fill=Math.max(0, f.fill - Math.max(1, GS.data.ranch.animals.length*0.5));
+      if(f.fill<=0) World.setTroughHay(false);
+    } }
+  },
+  // gentle grazing wander inside the paddock; hitbox + facing kept in sync
+  updateWander(dt){
+    GS.data.ranch.animals.forEach(a=>{ const m=World.animalObjs[a.id]; if(!m) return; const u=m.userData;
+      if(!u.wt){ u.wt=new THREE.Vector3(m.position.x,0,m.position.z); u.wwait=Util.rand(1,4); u.face=m.rotation.y||0; }
+      const dx=u.wt.x-m.position.x, dz=u.wt.z-m.position.z, d=Math.hypot(dx,dz);
+      if(d<0.25){ u.wwait-=dt; if(u.wwait<=0){ u.wwait=Util.rand(2,6);
+        u.wt.set(Util.rand(this.PADDOCK.minX,this.PADDOCK.maxX),0,Util.rand(this.PADDOCK.minZ,this.PADDOCK.maxZ)); } }
+      else { const sp=(a.type==='ayam'?0.7:0.5); m.position.x+=dx/d*sp*dt; m.position.z+=dz/d*sp*dt;
+        const tf=Math.atan2(-dz,dx); let df=tf-u.face; while(df>Math.PI)df-=6.283; while(df<-Math.PI)df+=6.283;
+        u.face+=df*Math.min(1,6*dt); m.rotation.y=u.face; }
+      if(u.entry) u.entry.hit.position.set(m.position.x,0.6,m.position.z);
+    });
+  }
 };
 
 /* ---- Ranch management: buy livestock + upgrade barn/coop capacity ---- */
@@ -1883,6 +1951,19 @@ const Ranch={
     const mesh=house==='barn'?World.barnMesh:World.coopMesh; if(mesh) mesh.scale.multiplyScalar(1.12);
     UI.toast('⬆️ Kandang di-upgrade! Kapasitas '+this.cap(house)); UI.haptic(15); UI.confetti();
     SaveManager.request(); setTimeout(()=>this.open(house),160);
+  },
+  // auto-feeder trough
+  openFeeder(){
+    const f=GS.data.ranch.feeder;
+    UI.choice('🪣 Palung Pakan · '+Math.round(f.fill)+'/'+f.max,[
+      {id:'fill',icon:'🌾',title:'Isi palung penuh',meta:'🪙40',disabled:GS.data.coins<40||f.fill>=f.max,onPick:()=>this.fillFeeder()},
+      {id:'info',icon:'ℹ️',title:'Palung memberi makan semua hewan otomatis',meta:'',disabled:true,onPick:()=>{}},
+    ]);
+  },
+  fillFeeder(){ const f=GS.data.ranch.feeder; if(GS.data.coins<40||f.fill>=f.max) return;
+    Economy.spend(40); f.fill=f.max; World.setTroughHay(true);
+    UI.toast('🌾 Palung terisi penuh! Hewan akan kenyang otomatis.'); Audio.sfx('plant'); UI.haptic(12);
+    SaveManager.request(); setTimeout(()=>this.openFeeder(),150);
   }
 };
 function Hearts(pos,n=3){ for(let i=0;i<n;i++){ setTimeout(()=>Particles_burst(new THREE.Vector3(pos.x,pos.y+1.4,pos.z),0xff5d7a,1,{spread:0.4,size:0.12}),i*80); } }
@@ -2474,6 +2555,7 @@ const Interactions={
       case 'animal':   AnimalSys.interact(entry.data.id); break;
       case 'barn':     Ranch.openBarn(); break;
       case 'coop':     Ranch.openCoop(); break;
+      case 'feeder':   Ranch.openFeeder(); break;
       case 'kitchen':  Cooking.open(); break;
       case 'shop':     Economy.openShop(); break;
       case 'shipping': Economy.openShipping(); break;
@@ -2579,6 +2661,21 @@ const UI={
       const p=this.project(new THREE.Vector3(h.obj.position.x,2.4,h.obj.position.z));
       h.el.style.left=p.x+'px'; h.el.style.top=p.y+'px';
     });
+  },
+  // floating building/object name labels — fade in as the player approaches
+  updateLabels(){
+    const labels=World.labels; if(!labels||!World.player) return;
+    const px=World.player.position.x, pz=World.player.position.z;
+    for(const L of labels){
+      const op=L.obj.position, dist=Math.hypot(op.x-px,op.z-pz);
+      const a=Util.clamp((14-dist)/6,0,1);
+      if(a<=0.02){ if(L.el.style.opacity!=='0') L.el.style.opacity='0'; continue; }
+      const v=new THREE.Vector3(op.x,L.y,op.z).project(SceneSetup.camera);
+      if(v.z>1){ L.el.style.opacity='0'; continue; }
+      L.el.style.left=((v.x*0.5+0.5)*window.innerWidth)+'px';
+      L.el.style.top=((-v.y*0.5+0.5)*window.innerHeight)+'px';
+      L.el.style.opacity=a.toFixed(2);
+    }
   },
   // friendship hearts shown briefly over NPC head
   showHearts(obj, level){
@@ -3021,6 +3118,7 @@ const Game={
     this.animateCreatures(GS.time);
     World.animateDecor(GS.time);
     World.updateNPCs(dt);
+    AnimalSys.updateWander(dt);
     Bugs.update(GS.time);
     this._miniT=(this._miniT||0)+dt; if(this._miniT>0.2){ this._miniT=0; UI.drawMinimap(); }
 
@@ -3034,6 +3132,7 @@ const Game={
     // (handled inside Farming.tick on grown transition)
 
     UI.updateBubbles();
+    UI.updateLabels();
 
     // gentle "go to sleep" nudge at night, once
     if(DayCycle.isNight() && !this._nightNudge){ this._nightNudge=true; UI.toast('Sudah malam, saatnya tidur 😴 (tap kasur)'); }
