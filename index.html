@@ -956,11 +956,10 @@ const World = {
     treeSpots.forEach(([x,z])=>{const t=Builders.tree();t.position.set(x,0,z);t.scale.setScalar(Util.rand(0.9,1.3));t.rotation.y=Util.rand(0,6.28);sc.add(t);});
     this.buildFence();
     this.buildGrass();
-    this.buildFlowers();    // instanced colorful flowers
-    this.buildScatter();    // instanced rocks + bushes
-    this.buildPond();       // little pond with lily pads
-    this.buildClouds();     // drifting sky clouds (uncurved)
-    this.buildExtras();     // mailbox, lamp posts, stepping stones, butterflies
+    // decorative detail — each isolated so a failure here can never blank the world
+    ['buildFlowers','buildScatter','buildPond','buildClouds','buildExtras'].forEach(fn=>{
+      try{ this[fn](); }catch(e){ console.warn('Decor dilewati:',fn,e); }
+    });
 
     // ---- player ----
     this.player=Builders.villager({hair:HAIR_COLORS[GS.data.customize.hair],outfit:OUTFIT_COLORS[GS.data.customize.outfit]});
@@ -1083,7 +1082,7 @@ const World = {
       d.position.set(x,0.32+s*0.04,z); d.updateMatrix(); heads.setMatrixAt(i,d.matrix);
       heads.setColorAt(i, col.setHex(Util.pick(COLORS)));
     });
-    heads.instanceColor.needsUpdate=true;
+    if(heads.instanceColor) heads.instanceColor.needsUpdate=true;
     SceneSetup.scene.add(stems); SceneSetup.scene.add(heads);
   },
 
@@ -1131,9 +1130,9 @@ const World = {
     const sc=SceneSetup.scene;
     // mailbox near house
     const mb=new THREE.Group();
-    mb.add(Object.assign(new THREE.Mesh(new THREE.CylinderGeometry(0.06,0.06,0.8,6),mat(0x8a6034)),{position:new THREE.Vector3(0,0.4,0)}));
-    mb.add(Object.assign(new THREE.Mesh(new THREE.BoxGeometry(0.3,0.3,0.5),mat(0xff5d5d)),{position:new THREE.Vector3(0,0.85,0)}));
-    mb.add(Object.assign(new THREE.Mesh(new THREE.BoxGeometry(0.04,0.18,0.12),mat(0xffd35e)),{position:new THREE.Vector3(0.16,0.95,0.1)}));
+    const mbPost=new THREE.Mesh(new THREE.CylinderGeometry(0.06,0.06,0.8,6),mat(0x8a6034)); mbPost.position.set(0,0.4,0); mb.add(mbPost);
+    const mbBox=new THREE.Mesh(new THREE.BoxGeometry(0.3,0.3,0.5),mat(0xff5d5d)); mbBox.position.set(0,0.85,0); mb.add(mbBox);
+    const mbFlag=new THREE.Mesh(new THREE.BoxGeometry(0.04,0.18,0.12),mat(0xffd35e)); mbFlag.position.set(0.16,0.95,0.1); mb.add(mbFlag);
     mb.position.set(-4,0,9.4); mb.traverse(o=>{if(o.isMesh)o.castShadow=true;}); sc.add(mb);
     // lamp posts (glow at night)
     this.lamps=[];
