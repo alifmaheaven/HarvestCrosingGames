@@ -229,6 +229,30 @@ html,body{
 #fish-tap{width:100%;margin-top:14px;padding:16px;font-size:18px;}
 .fish-flash{animation:fishFlash .25s ease-out;}
 @keyframes fishFlash{0%{filter:brightness(1.7)}100%{filter:brightness(1)}}
+
+/* minimap */
+#minimap{position:fixed;right:calc(var(--safe-r) + 10px);top:calc(var(--safe-t) + 66px);
+  width:96px;height:96px;border-radius:50%;border:2px solid var(--panel-edge);
+  background:rgba(255,249,236,.7);box-shadow:0 3px 0 rgba(0,0,0,.12);z-index:11;}
+
+/* decoration edit toolbar */
+#decor-bar{position:fixed;left:50%;transform:translateX(-50%);
+  bottom:calc(var(--safe-b) + 74px);display:none;gap:8px;align-items:center;
+  background:rgba(255,249,236,.95);border:2px solid var(--panel-edge);border-radius:18px;
+  padding:8px;max-width:94vw;overflow-x:auto;scrollbar-width:none;z-index:13;}
+#decor-bar::-webkit-scrollbar{display:none;}
+.db-item{width:48px;height:48px;flex:0 0 auto;border-radius:12px;background:#fff;border:2px solid #eadbc0;
+  display:flex;align-items:center;justify-content:center;font-size:24px;position:relative;}
+.db-item.sel{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent);}
+.db-item .db-q{position:absolute;bottom:0;right:3px;font-size:11px;font-weight:800;}
+.db-msg{font-size:12px;font-weight:600;opacity:.7;padding:0 8px;}
+.db-done{flex:0 0 auto;padding:10px 14px;border:none;border-radius:12px;background:var(--leaf);
+  color:#fff;font-weight:800;box-shadow:0 3px 0 var(--leaf-dark);}
+
+/* photo mode exit */
+#photo-exit{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(var(--safe-b) + 16px);
+  display:none;z-index:70;padding:12px 20px;border:none;border-radius:16px;
+  background:rgba(74,59,42,.9);color:#fff6da;font-weight:700;font-size:14px;}
 </style>
 </head>
 <body>
@@ -241,11 +265,14 @@ html,body{
   <div id="day-pill" class="hud-pill"><span id="day-line">Hari 1 · Semi</span><small id="time-line">Pagi · ☀️</small></div>
   <button id="menu-btn">☰</button>
   <div id="tool-pill">✋</div>
-  <div id="zoom-ctrl"><button id="zoom-in">＋</button><button id="zoom-out">－</button></div>
+  <div id="zoom-ctrl"><button id="zoom-in">＋</button><button id="zoom-out">－</button><button id="photo-btn">📷</button></div>
+  <canvas id="minimap" width="120" height="120"></canvas>
   <div id="inv-bar"></div>
+  <div id="decor-bar"></div>
   <div id="save-dot">💾</div>
   <div id="tip"></div>
 </div>
+<button id="photo-exit">📷 Keluar Mode Foto</button>
 
 <!-- joystick -->
 <div id="joy"><div class="ring"></div><div class="knob"></div></div>
@@ -358,6 +385,31 @@ const FISH = {
   kakap:   {name:'Kakap Merah',  emoji:'🐡', sell:48,  rarity:3, weight:10},
   cumi:    {name:'Cumi-cumi',    emoji:'🦑', sell:64,  rarity:4, weight:5},
   hiu:     {name:'Hiu Kecil',    emoji:'🦈', sell:130, rarity:5, weight:1},
+};
+// Catchable bugs (collection + sellable)
+const BUGS = {
+  kupu:   {name:'Kupu-kupu', emoji:'🦋', sell:18},
+  capung: {name:'Capung',    emoji:'🦗', sell:22},
+  kumbang:{name:'Kumbang',   emoji:'🪲', sell:28},
+  lebah:  {name:'Lebah',     emoji:'🐝', sell:34},
+  kepik:  {name:'Kepik',     emoji:'🐞', sell:40},
+};
+// Diggable fossils/treasures
+const FOSSILS = {
+  tulang: {name:'Tulang Purba', emoji:'🦴', sell:42},
+  amonit: {name:'Amonit',       emoji:'🐚', sell:56},
+  permata:{name:'Permata',      emoji:'💎', sell:95},
+};
+// Placeable decorations (bought from the furniture shop)
+const DECOR = {
+  flowerbed:{name:'Petak Bunga',   emoji:'🌷', cost:30},
+  fence:    {name:'Pagar',         emoji:'🪵', cost:15},
+  lamp:     {name:'Lampu Taman',   emoji:'🏮', cost:60},
+  bench:    {name:'Bangku',        emoji:'🪑', cost:80},
+  topiary:  {name:'Semak Hias',    emoji:'🌳', cost:50},
+  lantern:  {name:'Lentera',       emoji:'🪔', cost:45},
+  ball:     {name:'Bola Pantai',   emoji:'🏖️', cost:40},
+  signpost: {name:'Papan Lucu',    emoji:'🪧', cost:35},
 };
 
 /* ====================================================================== */
@@ -515,11 +567,14 @@ function defaultSave(){
     recipesUnlocked:{salad:true,smoothie:true,omelet:false,steak:false},
     friendship:{sari:0,tono:0,mira:0},
     greetedToday:[],
-    notebook:{crops:{},recipes:{},animals:{},fish:{}},  // collection checklists
+    notebook:{crops:{},recipes:{},animals:{},fish:{},bugs:{},fossils:{}},  // collection checklists
     customize:{hair:0,outfit:0},
     casualMode:false,
     settings:{music:0.4,sfx:0.7,haptic:true,sensitivity:1.0,zoom:1.0},
     shippingBin:{},                      // {id:qty} sold next morning
+    decorInv:{},                         // owned decoration items {type:qty}
+    placedDecor:[],                      // placed furniture [{type,x,z,ry}]
+    shopDeal:{day:0,id:null},            // daily rotating shop deal
     stats:{eggCollected:false, dishesCooked:0, fishCaught:0},
     totals:{harvest:0,fish:0,cook:0,coins:0,pet:0,sold:0}, // lifetime (for achievements)
     quests:{day:0,list:[],claimed:false},                  // daily quests
@@ -548,7 +603,10 @@ const SaveManager = {
       // deep-fill nested objects so older saves still receive new keys
       data.tools=Object.assign({watering:1,rod:1,shoes:0}, data.tools);
       data.settings=Object.assign({music:0.4,sfx:0.7,haptic:true,sensitivity:1.0,zoom:1.0}, data.settings);
-      data.notebook=Object.assign({crops:{},recipes:{},animals:{},fish:{}}, data.notebook);
+      data.notebook=Object.assign({crops:{},recipes:{},animals:{},fish:{},bugs:{},fossils:{}}, data.notebook);
+      data.decorInv=data.decorInv||{};
+      data.placedDecor=data.placedDecor||[];
+      data.shopDeal=Object.assign({day:0,id:null}, data.shopDeal);
       data.stats=Object.assign({eggCollected:false,dishesCooked:0,fishCaught:0}, data.stats);
       data.totals=Object.assign({harvest:0,fish:0,cook:0,coins:0,pet:0,sold:0}, data.totals);
       data.quests=Object.assign({day:0,list:[],claimed:false}, data.quests);
@@ -976,6 +1034,36 @@ const Builders = {
     }
     return g;
   },
+  // catchable bug (body + flapping wings)
+  bug(color){
+    const g=new THREE.Group();
+    const body=new THREE.Mesh(new THREE.SphereGeometry(0.12,8,6),mat(0x46414a)); body.scale.z=1.4; g.add(body);
+    [-1,1].forEach(s=>{ const w=new THREE.Mesh(new THREE.CircleGeometry(0.16,6),mat(color,{side:THREE.DoubleSide,transparent:true,opacity:0.92}));
+      w.position.x=s*0.13; w.rotation.y=s*0.7; g.add(w); g.userData[s>0?'wR':'wL']=w; });
+    return g;
+  },
+  // diggable mound with an X mark
+  digSpot(){
+    const g=new THREE.Group();
+    const mound=new THREE.Mesh(new THREE.SphereGeometry(0.4,8,6,0,Math.PI*2,0,Math.PI/2),mat(0x9b7653)); mound.scale.y=0.5; g.add(mound);
+    const m1=new THREE.Mesh(new THREE.BoxGeometry(0.42,0.03,0.07),mat(0x5b4636)); m1.position.y=0.16; m1.rotation.y=0.8; g.add(m1);
+    const m2=m1.clone(); m2.rotation.y=-0.8; g.add(m2);
+    return g;
+  },
+  // placeable decoration by type
+  decor(type){
+    const g=new THREE.Group();
+    if(type==='flowerbed'){ const base=new THREE.Mesh(new THREE.BoxGeometry(1,0.2,1),mat(0x8a6034)); base.position.y=0.1; g.add(base);
+      const cols=[0xff5d7a,0xffd35e,0xff8fab,0x9b6bd6]; for(let i=0;i<4;i++){const f=new THREE.Mesh(new THREE.SphereGeometry(0.13,6,5),mat(Util.pick(cols)));f.position.set(i%2?0.25:-0.25,0.32,i<2?0.25:-0.25);g.add(f);} }
+    else if(type==='fence'){ const r=new THREE.Mesh(new THREE.BoxGeometry(1,0.1,0.1),mat(0xf3ead3)); r.position.y=0.5; g.add(r); [-0.4,0.4].forEach(x=>{const p=new THREE.Mesh(new THREE.BoxGeometry(0.1,0.6,0.1),mat(0xf3ead3));p.position.set(x,0.3,0);g.add(p);}); }
+    else if(type==='lamp'){ const pole=new THREE.Mesh(new THREE.CylinderGeometry(0.07,0.09,1.6,6),mat(0x5b4636)); pole.position.y=0.8; g.add(pole); const b=new THREE.Mesh(new THREE.SphereGeometry(0.18,8,8),mat(0xfff3c4)); b.position.y=1.7; g.add(b); }
+    else if(type==='bench'){ const seat=new THREE.Mesh(new THREE.BoxGeometry(1.2,0.1,0.4),mat(0xb98a55)); seat.position.y=0.4; g.add(seat); const back=new THREE.Mesh(new THREE.BoxGeometry(1.2,0.4,0.08),mat(0xb98a55)); back.position.set(0,0.6,-0.16); g.add(back); }
+    else if(type==='topiary'){ const t=new THREE.Mesh(new THREE.CylinderGeometry(0.1,0.12,0.4,6),mat(0x8a6034)); t.position.y=0.2; g.add(t); const b=new THREE.Mesh(new THREE.SphereGeometry(0.42,8,7),mat(0x5a9840)); b.position.y=0.7; g.add(b); }
+    else if(type==='lantern'){ const s=new THREE.Mesh(new THREE.BoxGeometry(0.3,0.42,0.3),mat(0xff8a3d,{transparent:true,opacity:0.9})); s.position.y=0.25; g.add(s); const base=new THREE.Mesh(new THREE.CylinderGeometry(0.16,0.16,0.1,6),mat(0x5b4636)); base.position.y=0.05; g.add(base); }
+    else if(type==='ball'){ const b=new THREE.Mesh(new THREE.SphereGeometry(0.3,12,10),mat(0xff5d5d)); b.position.y=0.3; g.add(b); }
+    else if(type==='signpost'){ const p=new THREE.Mesh(new THREE.CylinderGeometry(0.06,0.06,0.9,6),mat(0x8a6034)); p.position.y=0.45; g.add(p); const bd=new THREE.Mesh(new THREE.BoxGeometry(0.7,0.4,0.06),mat(0xb98a55)); bd.position.y=0.95; g.add(bd); }
+    return g;
+  },
   signboard(){
     const g=new THREE.Group();
     const post=new THREE.Mesh(new THREE.CylinderGeometry(0.08,0.08,1.4,6),mat(0x8a6034)); post.position.y=0.7; g.add(post);
@@ -1016,7 +1104,7 @@ const World = {
     const beach=new THREE.Mesh(new THREE.PlaneGeometry(90,90,60,60),mat(0xefdfa8));
     beach.rotation.x=-Math.PI/2; beach.position.y=-0.06; beach.receiveShadow=true; sc.add(beach);
     const land=new THREE.Mesh(new THREE.PlaneGeometry(78,78,110,110),mat(0x8fbc8f));
-    land.rotation.x=-Math.PI/2; land.position.y=0; land.receiveShadow=true; sc.add(land);
+    land.rotation.x=-Math.PI/2; land.position.y=0; land.receiveShadow=true; sc.add(land); this.land=land;
     // darker lawn near the farm for subtle variation
     const lawn=new THREE.Mesh(new THREE.PlaneGeometry(34,40,20,24),mat(0x9ccb8a));
     lawn.rotation.x=-Math.PI/2; lawn.position.set(0,0.01,2); lawn.receiveShadow=true; sc.add(lawn);
@@ -1535,6 +1623,12 @@ const Input = {
 
   // a tap → find target; if in range act, else auto-walk-to-interact
   handleTap(x,y){
+    // decoration edit mode: tap ground to place, or tap a placed item to pick up
+    if(Decor.editing){
+      const p=this.groundPoint(x,y);
+      if(p){ if(!Decor.pickupNear(p.x,p.z)) Decor.placeAt(p.x,p.z); }
+      return;
+    }
     const entry=this.raycastEntry(x,y);
     if(!entry) return;
     const d=World.player.position.distanceTo(entry.root.position);
@@ -1544,6 +1638,14 @@ const Input = {
       // auto-walk toward it, then act on arrival (ala Animal Crossing)
       this.autoWalk={target:entry.root.position.clone(), entry};
     }
+  },
+  // raycast the ground plane → world point (logical flat coords)
+  groundPoint(x,y){
+    if(!World.land) return null;
+    const ndc=new THREE.Vector2((x/window.innerWidth)*2-1, -(y/window.innerHeight)*2+1);
+    World.raycaster.setFromCamera(ndc,SceneSetup.camera);
+    const hit=World.raycaster.intersectObject(World.land,false)[0];
+    return hit?hit.point:null;
   }
 };
 
@@ -1558,8 +1660,8 @@ const Inv={
   remove(id,n=1){ if((GS.data.inventory[id]||0)<n) return false; GS.data.inventory[id]-=n; if(GS.data.inventory[id]<=0) delete GS.data.inventory[id]; UI.renderInventory(); SaveManager.request(); return true; },
   has(id,n=1){ return (GS.data.inventory[id]||0)>=n; },
   count(id){ return GS.data.inventory[id]||0; },
-  nameOf(id){ return CROPS[id]?.name||PRODUCTS[id]?.name||RECIPES[id]?.name||FISH[id]?.name||id; },
-  emojiOf(id){ return CROPS[id]?.emoji||PRODUCTS[id]?.emoji||RECIPES[id]?.emoji||FISH[id]?.emoji||(id.startsWith('benih_')?'🌰':'❓'); },
+  nameOf(id){ return CROPS[id]?.name||PRODUCTS[id]?.name||RECIPES[id]?.name||FISH[id]?.name||BUGS[id]?.name||FOSSILS[id]?.name||id; },
+  emojiOf(id){ return CROPS[id]?.emoji||PRODUCTS[id]?.emoji||RECIPES[id]?.emoji||FISH[id]?.emoji||BUGS[id]?.emoji||FOSSILS[id]?.emoji||(id.startsWith('benih_')?'🌰':'❓'); },
 };
 
 /* ---- Energy ---- */
@@ -1903,15 +2005,22 @@ const Economy={
   spend(n){ GS.data.coins=Math.max(0,GS.data.coins-n); UI.updateCoins(); },
   earn(n){ GS.data.coins+=n; UI.updateCoins(); Audio.sfx('coin'); Stats.inc('coins',n); },
   // souvenir shop: sell raw goods instantly (lower price) + open upgrades
-  _price(id){ return CROPS[id]?.sell||PRODUCTS[id]?.sell||FISH[id]?.sell||5; },
+  _price(id){ let p=CROPS[id]?.sell||PRODUCTS[id]?.sell||FISH[id]?.sell||BUGS[id]?.sell||FOSSILS[id]?.sell||5;
+    if(GS.data.shopDeal && GS.data.shopDeal.id===id) p=Math.round(p*1.5); return p; },
+  ensureDeal(){ if(GS.data.shopDeal.day!==GS.data.day){ GS.data.shopDeal.day=GS.data.day;
+    const pool=[...Object.keys(CROPS),...Object.keys(PRODUCTS),...Object.keys(FISH).filter(k=>!FISH[k].junk)];
+    GS.data.shopDeal.id=Util.pick(pool); } },
   openShop(){
-    const sellable=Object.keys(GS.data.inventory).filter(id=>CROPS[id]||PRODUCTS[id]||FISH[id]);
+    this.ensureDeal();
+    const sellable=Object.keys(GS.data.inventory).filter(id=>CROPS[id]||PRODUCTS[id]||FISH[id]||BUGS[id]||FOSSILS[id]);
     const opts=[];
+    opts.push({id:'deal',icon:'⭐',title:'Penawaran hari ini: '+Inv.nameOf(GS.data.shopDeal.id)+' '+Inv.emojiOf(GS.data.shopDeal.id)+' +50% jual!',meta:'',disabled:true,onPick:()=>{}});
     sellable.forEach(id=>{
       const instant=Math.round(this._price(id)*0.8);
       opts.push({id, icon:Inv.emojiOf(id), title:'Jual '+Inv.nameOf(id),
-        meta:'x'+Inv.count(id)+' · 🪙'+instant+' /pcs', onPick:()=>this.sell(id,instant)});
+        meta:'x'+Inv.count(id)+' · 🪙'+instant+' /pcs'+(GS.data.shopDeal.id===id?' ⭐':''), onPick:()=>this.sell(id,instant)});
     });
+    opts.push({id:'furn', icon:'🪑', title:'Toko Furnitur (dekorasi)', meta:'→', onPick:()=>Decor.openShopMenu()});
     opts.push({id:'upg', icon:'🔧', title:'Upgrade Alat', meta:'lihat →', onPick:()=>this.openUpgrades()});
     UI.choice('Toko Suvenir 🛒', opts);
   },
@@ -1950,7 +2059,7 @@ const Economy={
   },
   // shipping bin: deposit raw goods, sold next morning at base price
   openShipping(){
-    const sellable=Object.keys(GS.data.inventory).filter(id=>CROPS[id]||PRODUCTS[id]||FISH[id]);
+    const sellable=Object.keys(GS.data.inventory).filter(id=>CROPS[id]||PRODUCTS[id]||FISH[id]||BUGS[id]||FOSSILS[id]);
     if(!sellable.length){
       const total=Object.entries(GS.data.shippingBin).reduce((s,[id,n])=>s+this._price(id)*n,0);
       UI.toast(total>0?('Kotak berisi barang senilai ~🪙'+total+' (terjual besok pagi)'):'Kotak kosong 📦');
@@ -2096,6 +2205,8 @@ const Collection={
   markRecipe(k){ if(!GS.data.notebook.recipes[k]){GS.data.notebook.recipes[k]=true; this.check();} },
   markAnimal(k){ if(!GS.data.notebook.animals[k]){GS.data.notebook.animals[k]=true; this.check();} },
   markFish(k){ if(!GS.data.notebook.fish[k]){GS.data.notebook.fish[k]=true; this.check();} },
+  markBug(k){ if(!GS.data.notebook.bugs[k]){GS.data.notebook.bugs[k]=true; this.check();} },
+  markFossil(k){ if(!GS.data.notebook.fossils[k]){GS.data.notebook.fossils[k]=true; this.check();} },
   check(){
     // milestone: all crops collected
     if(Object.keys(CROPS).every(k=>GS.data.notebook.crops[k]) && !GS.data._mileCrops){
@@ -2107,6 +2218,12 @@ const Collection={
     const realFish=Object.keys(FISH).filter(k=>!FISH[k].junk);
     if(realFish.every(k=>GS.data.notebook.fish[k]) && !GS.data._mileFish){
       GS.data._mileFish=true; this.celebrate('Semua ikan tertangkap! 🎣🎉');
+    }
+    if(Object.keys(BUGS).every(k=>GS.data.notebook.bugs[k]) && !GS.data._mileBugs){
+      GS.data._mileBugs=true; this.celebrate('Semua serangga terkumpul! 🦋🎉');
+    }
+    if(Object.keys(FOSSILS).every(k=>GS.data.notebook.fossils[k]) && !GS.data._mileFossils){
+      GS.data._mileFossils=true; this.celebrate('Semua fosil ditemukan! 🦴🎉');
     }
   },
   celebrate(msg){ UI.toast(msg); Audio.sfx('milestone'); UI.confetti(); }
@@ -2195,6 +2312,113 @@ const Mailbox={
   updateFlag(){ if(World.mailFlag) World.mailFlag.rotation.z=this.available()?-0.9:0; }
 };
 
+/* ---- Bugs: catchable critters that wander; tap to catch (small escape %) ---- */
+const Bugs={
+  list:[], max:5,
+  colors:{kupu:0xff8fab,capung:0x6fd0ff,kumbang:0x6a8f3f,lebah:0xffd35e,kepik:0xff5d5d},
+  init(){ this.list=[]; for(let i=0;i<this.max;i++) this.spawn(); },
+  spawn(){
+    const key=Util.pick(Object.keys(BUGS));
+    const b=Builders.bug(this.colors[key]||0xffffff);
+    const cx=Util.rand(-26,26),cz=Util.rand(-26,26);
+    b.position.set(cx,1,cz);
+    b.userData={key,cx,cz,phase:Util.rand(0,6.28),r:Util.rand(2,5),sp:Util.rand(0.3,0.6)};
+    SceneSetup.scene.add(b);
+    b.userData.entry=World.register(b,'bug',{ref:b,key},2.0,1.4);
+    this.list.push(b);
+  },
+  catch(b){
+    const key=b.userData.key;
+    if(Math.random()<0.18){ UI.popAt('💨 kabur!', b.position); Audio.sfx('step'); this.remove(b); setTimeout(()=>this.spawn(),Util.rand(3,7)*1000); return; }
+    Inv.add(key,1); Collection.markBug(key);
+    UI.popAt('+1 '+BUGS[key].name+' '+BUGS[key].emoji, b.position,'#caffca');
+    Audio.sfx('harvest'); UI.haptic(12); Particles_burst(b.position,0xcaffca,5);
+    this.remove(b); setTimeout(()=>this.spawn(),Util.rand(4,9)*1000); SaveManager.request();
+  },
+  remove(b){
+    const i=World.interactables.findIndex(e=>e.root===b);
+    if(i>=0){ SceneSetup.scene.remove(World.interactables[i].hit); World.interactables.splice(i,1); }
+    SceneSetup.scene.remove(b); const j=this.list.indexOf(b); if(j>=0) this.list.splice(j,1);
+  },
+  update(t){
+    this.list.forEach(b=>{ const u=b.userData;
+      b.position.x=u.cx+Math.cos(t*u.sp+u.phase)*u.r; b.position.z=u.cz+Math.sin(t*u.sp+u.phase)*u.r;
+      b.position.y=1+Math.sin(t*3+u.phase)*0.4; b.rotation.y=-(t*u.sp+u.phase)+Math.PI/2;
+      if(u.wL){ u.wL.rotation.y=-(0.5+Math.sin(t*16)*0.6); u.wR.rotation.y=(0.5+Math.sin(t*16)*0.6); }
+      if(u.entry) u.entry.hit.position.set(b.position.x,0.8,b.position.z);
+    });
+  }
+};
+
+/* ---- Dig: daily dig spots that yield fossils/coins ---- */
+const Dig={
+  spots:[],
+  daily(){ this.clear(); const n=Util.randInt(3,5); for(let i=0;i<n;i++) this.spawn(); },
+  spawn(){
+    let x,z,tries=0; do{ x=Util.rand(-26,26); z=Util.rand(-26,26); tries++; }while(!World._clear(x,z)&&tries<40);
+    const m=Builders.digSpot(); m.position.set(x,0.02,z); SceneSetup.scene.add(m);
+    m.userData.entry=World.register(m,'dig',{ref:m},2.0,1.6);
+    this.spots.push(m);
+  },
+  dig(m){
+    const r=Math.random();
+    if(r<0.45){ const c=Util.randInt(15,40); Economy.earn(c); UI.popAt('+'+c+' 🪙', m.position,'#ffe08a'); }
+    else { const id=Util.pick(Object.keys(FOSSILS)); Inv.add(id,1); Collection.markFossil(id); UI.popAt('+1 '+FOSSILS[id].name+' '+FOSSILS[id].emoji, m.position,'#fff'); }
+    Audio.sfx('harvest'); UI.haptic(12); Particles_burst(m.position,0xb98a55,6); Energy.spend(2);
+    this.remove(m); SaveManager.request();
+  },
+  remove(m){
+    const i=World.interactables.findIndex(e=>e.root===m);
+    if(i>=0){ SceneSetup.scene.remove(World.interactables[i].hit); World.interactables.splice(i,1); }
+    SceneSetup.scene.remove(m); const j=this.spots.indexOf(m); if(j>=0) this.spots.splice(j,1);
+  },
+  clear(){ this.spots.slice().forEach(m=>this.remove(m)); }
+};
+
+/* ---- Decor: buy & place furniture; "edit mode" places/picks-up on ground tap ---- */
+const Decor={
+  group:null, editing:false, selected:null,
+  init(){ this.group=new THREE.Group(); SceneSetup.scene.add(this.group); this.rebuild(); },
+  rebuild(){
+    if(!this.group) return;
+    while(this.group.children.length) this.group.remove(this.group.children[0]);
+    GS.data.placedDecor.forEach(d=>{ const m=Builders.decor(d.type); m.position.set(d.x,0,d.z); m.rotation.y=d.ry||0; m.userData.decorRef=d; this.group.add(m); });
+  },
+  openShopMenu(){
+    const opts=Object.keys(DECOR).map(t=>({id:t,icon:DECOR[t].emoji,title:'Beli '+DECOR[t].name,
+      meta:'🪙'+DECOR[t].cost+(GS.data.decorInv[t]?(' · punya '+GS.data.decorInv[t]):''),
+      disabled:GS.data.coins<DECOR[t].cost,onPick:()=>this.buy(t)}));
+    opts.push({id:'place',icon:'✋',title:'Mode Tata (letakkan / ambil)',meta:'→',onPick:()=>this.enterEdit()});
+    UI.choice('🪑 Toko Furnitur', opts);
+  },
+  buy(t){ if(GS.data.coins<DECOR[t].cost) return; Economy.spend(DECOR[t].cost);
+    GS.data.decorInv[t]=(GS.data.decorInv[t]||0)+1; UI.toast('Beli '+DECOR[t].name+' '+DECOR[t].emoji); UI.haptic(12);
+    SaveManager.request(); setTimeout(()=>this.openShopMenu(),140); },
+  enterEdit(){ this.editing=true; this.selected=Object.keys(GS.data.decorInv).find(k=>GS.data.decorInv[k]>0)||null;
+    UI.showDecorBar(); UI.toast('Mode Tata: tap tanah untuk meletakkan, tap furnitur untuk ambil.'); },
+  exitEdit(){ this.editing=false; UI.hideDecorBar(); SaveManager.request(); },
+  select(t){ this.selected=t; UI.showDecorBar(); },
+  placeAt(x,z){
+    const t=this.selected;
+    if(!t||!(GS.data.decorInv[t]>0)){ UI.toast('Pilih/beli furnitur dulu 🪑'); return; }
+    GS.data.decorInv[t]--;
+    const d={type:t,x:+x.toFixed(2),z:+z.toFixed(2),ry:Util.rand(0,6.28)};
+    GS.data.placedDecor.push(d);
+    const m=Builders.decor(t); m.position.set(d.x,0,d.z); m.rotation.y=d.ry; m.userData.decorRef=d; this.group.add(m);
+    Audio.sfx('plant'); UI.haptic(10); Particles_burst(new THREE.Vector3(d.x,0.4,d.z),0x9fd86f,4);
+    UI.showDecorBar(); SaveManager.request();
+  },
+  pickupNear(x,z){
+    let best=null,bd=1.3;
+    this.group.children.forEach(m=>{ const dd=Math.hypot(m.position.x-x,m.position.z-z); if(dd<bd){bd=dd;best=m;} });
+    if(!best) return false;
+    const d=best.userData.decorRef; GS.data.decorInv[d.type]=(GS.data.decorInv[d.type]||0)+1;
+    const idx=GS.data.placedDecor.indexOf(d); if(idx>=0) GS.data.placedDecor.splice(idx,1);
+    this.group.remove(best); Audio.sfx('pop'); UI.haptic(8); UI.popAt('📦 diambil', new THREE.Vector3(x,0.4,z));
+    UI.showDecorBar(); SaveManager.request(); return true;
+  }
+};
+
 /* ====================================================================== */
 /* Interaction dispatcher — routes a tapped entry to the right system     */
 /* ====================================================================== */
@@ -2216,6 +2440,8 @@ const Interactions={
       case 'sign':     UI.openRename(); break;
       case 'water':    Fishing.start(entry.data.spot); break;
       case 'mailbox':  Mailbox.open(); break;
+      case 'bug':      Bugs.catch(entry.data.ref); break;
+      case 'dig':      Dig.dig(entry.data.ref); break;
     }
   },
   _removeEntry(entry){
@@ -2243,6 +2469,8 @@ const UI={
     // zoom buttons (pinch is handled in InputController)
     Util.$('#zoom-in').addEventListener('click',()=>SceneSetup.setZoom(SceneSetup.zoom+0.18));
     Util.$('#zoom-out').addEventListener('click',()=>SceneSetup.setZoom(SceneSetup.zoom-0.18));
+    Util.$('#photo-btn').addEventListener('click',()=>this.togglePhoto());
+    Util.$('#photo-exit').addEventListener('click',()=>this.togglePhoto());
     // close buttons (event delegation); fishing modal closes only when its game ends
     Util.$$('.modal').forEach(m=>m.addEventListener('click',e=>{ if(e.target===m && m.id!=='modal-fishing') m.classList.remove('on'); }));
   },
@@ -2399,6 +2627,12 @@ const UI={
     html+='</div><div style="font-weight:700;margin-top:10px">🎣 Ikan tertangkap</div><div class="grid">';
     Object.keys(FISH).filter(k=>!FISH[k].junk).forEach(k=>{ const got=GS.data.notebook.fish[k];
       html+='<div class="cell'+(got?'':' locked')+'"><span class="icon">'+FISH[k].emoji+'</span><span class="lbl">'+FISH[k].name+'</span>'+(got?'<span class="check">✅</span>':'')+'</div>';});
+    html+='</div><div style="font-weight:700;margin-top:10px">🦋 Serangga</div><div class="grid">';
+    Object.keys(BUGS).forEach(k=>{ const got=GS.data.notebook.bugs[k];
+      html+='<div class="cell'+(got?'':' locked')+'"><span class="icon">'+BUGS[k].emoji+'</span><span class="lbl">'+BUGS[k].name+'</span>'+(got?'<span class="check">✅</span>':'')+'</div>';});
+    html+='</div><div style="font-weight:700;margin-top:10px">🦴 Fosil</div><div class="grid">';
+    Object.keys(FOSSILS).forEach(k=>{ const got=GS.data.notebook.fossils[k];
+      html+='<div class="cell'+(got?'':' locked')+'"><span class="icon">'+FOSSILS[k].emoji+'</span><span class="lbl">'+FOSSILS[k].name+'</span>'+(got?'<span class="check">✅</span>':'')+'</div>';});
     html+='</div>';
     body.innerHTML=html;
     body.querySelector('.close').addEventListener('click',()=>Util.$('#modal-notebook').classList.remove('on'));
@@ -2511,6 +2745,42 @@ const UI={
   },
   tutorialDone(){ if(GS.data.onboardDone) return; GS.data.onboardDone=true; Util.$('#tip').classList.remove('on'); this.toast('Selamat bertani! 🌿'); SaveManager.request(); },
 
+  /* ---- decoration edit toolbar ---- */
+  showDecorBar(){
+    const bar=Util.$('#decor-bar'); bar.style.display='flex'; bar.innerHTML='';
+    const items=Object.keys(GS.data.decorInv).filter(k=>GS.data.decorInv[k]>0);
+    if(!items.length){ const d=document.createElement('div'); d.className='db-msg'; d.textContent='Beli furnitur di Toko Furnitur dulu 🪑'; bar.appendChild(d); }
+    items.forEach(t=>{ const el=document.createElement('div'); el.className='db-item'+(Decor.selected===t?' sel':'');
+      el.innerHTML=DECOR[t].emoji+'<span class="db-q">'+GS.data.decorInv[t]+'</span>'; el.onclick=()=>Decor.select(t); bar.appendChild(el); });
+    const done=document.createElement('button'); done.className='db-done'; done.textContent='Selesai ✅'; done.onclick=()=>Decor.exitEdit(); bar.appendChild(done);
+  },
+  hideDecorBar(){ Util.$('#decor-bar').style.display='none'; },
+
+  /* ---- mini-map ---- */
+  drawMinimap(){
+    const cv=Util.$('#minimap'); if(!cv) return; const ctx=cv.getContext('2d'); const W=cv.width,H=cv.height;
+    ctx.clearRect(0,0,W,H);
+    const R=34, sc=(W/2-4)/R, cx=W/2, cy=H/2;
+    const tx=v=>cx+v*sc, tz=v=>cy+v*sc;
+    ctx.fillStyle='#8fbc8f'; ctx.beginPath(); ctx.arc(cx,cy,W/2-3,0,Math.PI*2); ctx.fill();
+    ctx.fillStyle='#b98a55'; [[-6,8],[8,-5],[5,8],[-9,-6],[8,3]].forEach(([x,z])=>ctx.fillRect(tx(x)-2,tz(z)-2,4,4));
+    ctx.fillStyle='#4aa3d6'; [[13,-1],[-15,13]].forEach(([x,z])=>{ctx.beginPath();ctx.arc(tx(x),tz(z),3,0,Math.PI*2);ctx.fill();});
+    ctx.fillStyle='#ffb020'; (Dig.spots||[]).forEach(m=>{ctx.fillRect(tx(m.position.x)-1.5,tz(m.position.z)-1.5,3,3);});
+    ctx.fillStyle='#ff8fab'; Object.values(World.npcObjs||{}).forEach(n=>{ctx.beginPath();ctx.arc(tx(n.position.x),tz(n.position.z),2,0,Math.PI*2);ctx.fill();});
+    if(World.player){ ctx.fillStyle='#fff'; ctx.strokeStyle='#4a3b2a'; ctx.lineWidth=1.5;
+      ctx.beginPath(); ctx.arc(tx(World.player.position.x),tz(World.player.position.z),3.5,0,Math.PI*2); ctx.fill(); ctx.stroke(); }
+  },
+
+  /* ---- photo mode (hide HUD for clean screenshots) ---- */
+  photo:false,
+  togglePhoto(){
+    this.photo=!this.photo;
+    Util.$('#ui-root').style.opacity=this.photo?'0':'1';
+    Util.$('#ui-root').style.pointerEvents=this.photo?'none':'';
+    Util.$('#photo-exit').style.display=this.photo?'block':'none';
+    if(this.photo) this.toast('');
+  },
+
   /* ---- Confetti burst (DOM) ---- */
   confetti(){
     const colors=['#ff8fab','#6aa84f','#ffd35e','#4d8af0','#ff7a5c'];
@@ -2597,6 +2867,7 @@ const Game={
     UI.updateCoins(); UI.updateEnergy(); UI.renderInventory(); UI.updateDayLabel();
     NPCSys.maybeEvent();
     Quests.ensure(); Mailbox.updateFlag();
+    Economy.ensureDeal(); Decor.init(); Bugs.init(); Dig.daily();
     UI.tutorialStart();
 
     GS.ready=true;
@@ -2621,6 +2892,7 @@ const Game={
       UI.updateCoins(); UI.updateEnergy(); UI.updateDayLabel(); UI.renderInventory();
       NPCSys.maybeEvent();
       Quests.ensure(); Mailbox.updateFlag();   // fresh quests + new daily gift
+      Economy.ensureDeal(); Dig.daily();        // new shop deal + fresh dig spots
       SaveManager.save();
       UI.toast('☀️ Hari '+GS.data.day+' · '+GS.data.season+' '+SEASON_EMOJI[GS.data.season]);
       f.style.opacity='0';
@@ -2704,6 +2976,8 @@ const Game={
     this.animateCreatures(GS.time);
     World.animateDecor(GS.time);
     World.updateNPCs(dt);
+    Bugs.update(GS.time);
+    this._miniT=(this._miniT||0)+dt; if(this._miniT>0.2){ this._miniT=0; UI.drawMinimap(); }
 
     // system ticks
     this.growTimer+=dt;

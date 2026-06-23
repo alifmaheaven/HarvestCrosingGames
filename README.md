@@ -34,6 +34,9 @@ Built with **Three.js (WebGL)**, primitive geometry only (no external 3D models)
 - 🏆 **Achievements** — lifetime milestones that auto-reward coins and celebrate with confetti.
 - 📬 **Daily mailbox gift** — claim a coin/crop/product gift once per day (the flag pops up when one is waiting).
 - 🏷️ **Name your animals** and 🎁 **treasure chests / golden (shiny) fish** while fishing for variable rewards.
+- 🐛 **Bug catching** (wandering critters you tap to net) and ⛏️ **fossil digging** (daily dig spots) — both tracked in the notebook.
+- 🏡 **Island decoration** — buy furniture and place/pick-up items freely on the ground in an edit mode; placements are saved.
+- 🗺️ **Mini-map**, 📷 **photo mode** (hide the HUD), and a 🛒 **daily shop deal** (one item sells for +50% each day).
 - 📖 **Collection & progression** — notebook checklist, milestone confetti, land/coop expansion, character customization, and a nameable farm sign.
 - 🔊 **Juice & audio** — Web Audio generated ambient music + layered SFX, squash-stretch tweens, particle bursts, and floating popups.
 - 💾 **Versioned save system** — debounced autosave + save-on-sleep, with a graceful in-memory fallback if `localStorage` is unavailable.
