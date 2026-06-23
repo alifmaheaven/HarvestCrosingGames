@@ -590,6 +590,9 @@ function defaultSave(){
     decorInv:{},                         // owned decoration items {type:qty}
     placedDecor:[],                      // placed furniture [{type,x,z,ry}]
     shopDeal:{day:0,id:null},            // daily rotating shop deal
+    pet:{has:true, type:'dog', name:null, affection:0},  // companion pet
+    museum:{fish:{},bugs:{},fossils:{}}, // donated specimens
+    festival:{day:-1, claimed:false},    // festival-day tracking
     stats:{eggCollected:false, dishesCooked:0, fishCaught:0},
     totals:{harvest:0,fish:0,cook:0,coins:0,pet:0,sold:0}, // lifetime (for achievements)
     quests:{day:0,list:[],claimed:false},                  // daily quests
@@ -636,6 +639,9 @@ const SaveManager = {
       data.ranch.nextId=data.ranch.nextId||(data.ranch.animals.length+1);
       data.ranch.feeder=data.ranch.feeder||{fill:0,max:60};
       data.shopDeal=Object.assign({day:0,id:null}, data.shopDeal);
+      data.pet=Object.assign({has:true,type:'dog',name:null,affection:0}, data.pet);
+      data.museum=Object.assign({fish:{},bugs:{},fossils:{}}, data.museum);
+      data.festival=Object.assign({day:-1,claimed:false}, data.festival);
       data.stats=Object.assign({eggCollected:false,dishesCooked:0,fishCaught:0}, data.stats);
       data.totals=Object.assign({harvest:0,fish:0,cook:0,coins:0,pet:0,sold:0}, data.totals);
       data.quests=Object.assign({day:0,list:[],claimed:false}, data.quests);
@@ -1079,6 +1085,37 @@ const Builders = {
     const hay=new THREE.Mesh(new THREE.BoxGeometry(1.1,0.18,0.36),mat(0xffd35e)); hay.position.y=0.36; hay.visible=false; g.add(hay); g.userData.hay=hay;
     return g;
   },
+  // companion pet (dog or cat); head at +x so facing matches movement
+  pet(type){
+    const g=new THREE.Group();
+    const col = type==='cat' ? 0x9a9a9a : 0xb98a55;
+    const s = type==='cat' ? 0.85 : 1;
+    const body=new THREE.Mesh(new THREE.BoxGeometry(0.6*s,0.4*s,0.34*s),mat(col)); body.position.y=0.38*s; body.castShadow=true; g.add(body);
+    const head=new THREE.Mesh(new THREE.BoxGeometry(0.3*s,0.3*s,0.3*s),mat(col)); head.position.set(0.42*s,0.5*s,0); g.add(head);
+    const snout=new THREE.Mesh(new THREE.BoxGeometry(0.16*s,0.14*s,0.18*s),mat(0x5b4636)); snout.position.set(0.6*s,0.44*s,0); g.add(snout);
+    // ears
+    [-0.1,0.1].forEach(z=>{ const ear = type==='cat'
+        ? new THREE.Mesh(new THREE.ConeGeometry(0.08*s,0.16*s,4),mat(col))
+        : new THREE.Mesh(new THREE.BoxGeometry(0.08*s,0.16*s,0.05*s),mat(0x8a6034));
+      ear.position.set(0.4*s,0.68*s,z); g.add(ear); });
+    // eyes
+    [-0.09,0.09].forEach(z=>{ const e=new THREE.Mesh(new THREE.SphereGeometry(0.04*s,6,6),mat(0x222222)); e.position.set(0.56*s,0.52*s,z); g.add(e); });
+    // legs
+    [[0.2,0.12],[-0.18,0.12],[0.2,-0.12],[-0.18,-0.12]].forEach(([x,z])=>{const l=new THREE.Mesh(new THREE.CylinderGeometry(0.05*s,0.05*s,0.34*s,5),mat(col));l.position.set(x*s,0.17*s,z*s);g.add(l);});
+    // tail (wags)
+    const tail=new THREE.Group(); const tailM=new THREE.Mesh(new THREE.CylinderGeometry(0.04*s,0.02*s,0.3*s,5),mat(col)); tailM.position.set(-0.15*s,0,0); tailM.rotation.z=0.8; tail.add(tailM); tail.position.set(-0.3*s,0.5*s,0); g.add(tail); g.userData.tail=tail;
+    return g;
+  },
+  // museum building (columned hall)
+  museum(){
+    const g=new THREE.Group();
+    const base=new THREE.Mesh(new THREE.BoxGeometry(4,2.2,3),mat(0xeae0c8)); base.position.y=1.1; base.castShadow=true; g.add(base);
+    const roof=new THREE.Mesh(new THREE.BoxGeometry(4.4,0.5,3.4),mat(0x9a8a6a)); roof.position.y=2.45; g.add(roof);
+    const ped=new THREE.Mesh(new THREE.BoxGeometry(4.6,0.3,3.6),mat(0xcfc2a0)); ped.position.y=0.15; g.add(ped);
+    for(let i=0;i<4;i++){ const c=new THREE.Mesh(new THREE.CylinderGeometry(0.18,0.18,1.9,10),mat(0xfffaf0)); c.position.set(-1.5+i*1, 1.15, 1.6); g.add(c); }
+    const door=new THREE.Mesh(new THREE.BoxGeometry(0.9,1.3,0.1),mat(0x8a6034)); door.position.set(0,0.85,1.55); g.add(door);
+    return g;
+  },
   // diggable mound with an X mark
   digSpot(){
     const g=new THREE.Group();
@@ -1211,6 +1248,10 @@ const World = {
     this.register(sign,'sign',{},1.8,1.6); this.addLabel('🪧 Papan Nama', sign, 1.8);
     this.updateSign();
 
+    // ---- museum (donate fish/bugs/fossils) ----
+    const museum=Builders.museum(); museum.position.set(14,0,10); sc.add(museum);
+    this.register(museum,'museum',{},2.8,3.4); this.addLabel('🏛️ Museum', museum, 3.2);
+
     // ---- NPCs ----
     const npcDefs=[
       {key:'sari',name:'Bibi Sari', pos:[6,0,11], hair:5, outfit:4, hat:0xff5d5d},
@@ -1259,6 +1300,14 @@ const World = {
     inst.castShadow=true; SceneSetup.scene.add(inst);
   },
   setTroughHay(on){ if(this.troughMesh&&this.troughMesh.userData.hay) this.troughMesh.userData.hay.visible=on; },
+  // fully remove a dynamic object (interactable hitbox + label + mesh)
+  removeObject(mesh){
+    const i=this.interactables.findIndex(e=>e.root===mesh);
+    if(i>=0){ SceneSetup.scene.remove(this.interactables[i].hit); this.interactables.splice(i,1); }
+    const li=this.labels.findIndex(L=>L.obj===mesh);
+    if(li>=0){ this.labels[li].el.remove(); this.labels.splice(li,1); }
+    SceneSetup.scene.remove(mesh);
+  },
   // register a floating name label tied to an object (shown when player is near)
   addLabel(name, obj, y){
     const el=document.createElement('div'); el.className='obj-label'; el.textContent=name;
@@ -2544,6 +2593,117 @@ const Decor={
   }
 };
 
+/* ---- Pet: a companion that follows the player ---- */
+const Pet={
+  mesh:null, label:null,
+  init(){ if(!GS.data.pet.has) return;
+    this.mesh=Builders.pet(GS.data.pet.type);
+    this.mesh.position.set(World.player.position.x-1.3,0,World.player.position.z+1.3);
+    SceneSetup.scene.add(this.mesh);
+    this.mesh.userData.entry=World.register(this.mesh,'pet',{},1.8,1.4);
+    World.addLabel(this._name(), this.mesh, 1.1);
+    this.label=World.labels[World.labels.length-1];
+  },
+  _name(){ return (GS.data.pet.type==='cat'?'🐱 ':'🐶 ')+(GS.data.pet.name||'Peliharaan'); },
+  interact(){
+    UI.choice(this._name()+' · 🐾'+Math.round(GS.data.pet.affection),[
+      {id:'pet',icon:'🤚',title:'Elus',meta:'+kasih sayang',onPick:()=>this.petIt()},
+      {id:'name',icon:'🏷️',title:GS.data.pet.name?'Ganti nama':'Beri nama',meta:GS.data.pet.name||'-',onPick:()=>this.rename()},
+      {id:'type',icon:'🔁',title:'Ganti jenis',meta:GS.data.pet.type==='dog'?'🐶→🐱':'🐱→🐶',onPick:()=>this.swap()},
+    ]);
+  },
+  petIt(){ GS.data.pet.affection=Util.clamp(GS.data.pet.affection+1,0,100);
+    UI.popAt('💗',this.mesh.position,'#ff5d7a'); Audio.sfx('heart'); UI.haptic(10); Tween.pop(this.mesh); Hearts(this.mesh.position,4);
+    if(Math.random()<0.2){ const c=Util.randInt(5,20); Economy.earn(c); UI.popAt('+'+c+' 🪙',this.mesh.position,'#ffe08a'); }
+    SaveManager.request();
+  },
+  rename(){ UI.promptText('🏷️ Nama Peliharaan',GS.data.pet.name||'',v=>{ GS.data.pet.name=v.trim().slice(0,12)||null;
+    if(this.label){ this.label.name=this._name(); this.label.el.textContent=this._name(); }
+    UI.toast('🐾 '+this._name()); SaveManager.request(); }); },
+  swap(){ const pos=this.mesh.position.clone(); World.removeObject(this.mesh);
+    GS.data.pet.type=GS.data.pet.type==='dog'?'cat':'dog';
+    this.mesh=Builders.pet(GS.data.pet.type); this.mesh.position.copy(pos); SceneSetup.scene.add(this.mesh);
+    this.mesh.userData.entry=World.register(this.mesh,'pet',{},1.8,1.4);
+    World.addLabel(this._name(), this.mesh, 1.1); this.label=World.labels[World.labels.length-1];
+    UI.toast('🔁 Sekarang '+(GS.data.pet.type==='dog'?'anjing 🐶':'kucing 🐱')); SaveManager.request();
+  },
+  update(dt,t){ if(!this.mesh) return; const m=this.mesh, p=World.player.position;
+    const tx=p.x-1.3, tz=p.z+1.3, dx=tx-m.position.x, dz=tz-m.position.z, d=Math.hypot(dx,dz);
+    if(d>0.4){ const sp=Math.min(7,3+d*1.5); m.position.x+=dx/d*sp*dt; m.position.z+=dz/d*sp*dt;
+      m.rotation.y=Math.atan2(-dz,dx); m.position.y=Math.abs(Math.sin(t*12))*0.07; }
+    else { m.position.y=Util.damp(m.position.y,0,8,dt); }
+    if(m.userData.entry) m.userData.entry.hit.position.set(m.position.x,0.5,m.position.z);
+    if(m.userData.tail) m.userData.tail.rotation.y=Math.sin(t*9)*0.5;
+  }
+};
+
+/* ---- Museum: donate one of each fish/bug/fossil ---- */
+const Museum={
+  cats:{fish:FISH, bugs:BUGS, fossils:FOSSILS},
+  titles:{fish:'Ikan', bugs:'Serangga', fossils:'Fosil'},
+  keys(cat){ return Object.keys(this.cats[cat]).filter(k=>!this.cats[cat][k].junk); },
+  progress(cat){ const ks=this.keys(cat); return ks.filter(k=>GS.data.museum[cat][k]).length+'/'+ks.length; },
+  open(){
+    UI.choice('🏛️ Museum',[
+      {id:'fish',icon:'🐟',title:'Pajangan Ikan',meta:this.progress('fish'),onPick:()=>this.openCat('fish')},
+      {id:'bugs',icon:'🦋',title:'Pajangan Serangga',meta:this.progress('bugs'),onPick:()=>this.openCat('bugs')},
+      {id:'fossils',icon:'🦴',title:'Pajangan Fosil',meta:this.progress('fossils'),onPick:()=>this.openCat('fossils')},
+    ]);
+  },
+  openCat(cat){
+    const opts=this.keys(cat).map(k=>{ const donated=GS.data.museum[cat][k], have=Inv.has(k);
+      return {id:k,icon:this.cats[cat][k].emoji,title:this.cats[cat][k].name,
+        meta:donated?'✅':(have?'Sumbang →':'belum punya'),disabled:donated||!have,onPick:()=>this.donate(cat,k)}; });
+    UI.choice('🏛️ '+this.titles[cat]+' ('+this.progress(cat)+')',opts);
+  },
+  donate(cat,k){ if(!Inv.has(k)) return; Inv.remove(k,1); GS.data.museum[cat][k]=true;
+    Economy.earn(10); UI.toast('🏛️ '+this.cats[cat][k].name+' disumbangkan! Terima kasih 💛'); Audio.sfx('done'); UI.haptic(12);
+    if(this.keys(cat).every(x=>GS.data.museum[cat][x]) && !GS.data['_mus_'+cat]){ GS.data['_mus_'+cat]=true;
+      UI.toast('🏛️🎉 Pajangan '+this.titles[cat]+' lengkap! +🪙150'); Economy.earn(150); Audio.sfx('milestone'); UI.confetti(); }
+    SaveManager.request(); setTimeout(()=>this.openCat(cat),140);
+  }
+};
+
+/* ---- Festivals: a seasonal event day with a delivery task + reward ---- */
+const FESTIVALS={
+  Semi:  {name:'Festival Bunga 🌸', type:'crop', target:5, label:'Serahkan 5 hasil kebun', reward:200, gift:'flowerbed'},
+  Panas: {name:'Lomba Mancing 🎣',  type:'fish', target:3, label:'Serahkan 3 ikan',       reward:220, gift:'lantern'},
+  Gugur: {name:'Festival Panen 🍂', type:'crop', target:8, label:'Serahkan 8 hasil kebun', reward:260, gift:'bench'},
+  Dingin:{name:'Pesta Hangat ❄️',   type:'dish', target:2, label:'Serahkan 2 hidangan',    reward:280, gift:'topiary'},
+};
+const Festivals={
+  npc:null,
+  today(){ return ((GS.data.day-1)%SEASON_DAYS===1) ? FESTIVALS[GS.data.season] : null; },
+  refresh(){
+    if(this.npc){ World.removeObject(this.npc); this.npc=null; }
+    const f=this.today(); if(!f) return;
+    const n=Builders.villager({hair:Util.pick(HAIR_COLORS),outfit:0xffcf4d,hat:0xff5d5d});
+    n.position.set(2.4,0,12.4); SceneSetup.scene.add(n); this.npc=n;
+    n.userData.entry=World.register(n,'festival',{},2.4,1.8);
+    World.addLabel('🎉 '+f.name, n, 2.4);
+    if(GS.data.festival.day!==GS.data.day){ GS.data.festival.day=GS.data.day; GS.data.festival.claimed=false;
+      setTimeout(()=>UI.toast('🎉 Hari ini '+f.name+'! Temui panitia di alun-alun (papan nama).'),1400); }
+  },
+  count(type){ const test = type==='crop'?CROPS : type==='fish'?FISH : RECIPES;
+    return Object.keys(GS.data.inventory).filter(id=>test[id]).reduce((s,id)=>s+Inv.count(id),0); },
+  consume(type,n){ const test = type==='crop'?CROPS : type==='fish'?FISH : RECIPES;
+    const pool=Object.keys(GS.data.inventory).filter(id=>test[id]); let left=n;
+    for(const id of pool){ while(left>0 && Inv.has(id)){ Inv.remove(id,1); left--; } if(left<=0) break; } },
+  open(){ const f=this.today(); if(!f) return;
+    if(GS.data.festival.claimed){ UI.toast('🎉 Kamu sudah ikut festival hari ini. Sampai jumpa besok!'); return; }
+    const have=this.count(f.type);
+    UI.choice(f.name,[
+      {id:'task',icon:'📋',title:f.label,meta:have+'/'+f.target,disabled:true,onPick:()=>{}},
+      {id:'go',icon:'🎁',title:'Serahkan & ikut festival',meta:'🪙'+f.reward+' + '+DECOR[f.gift].emoji,disabled:have<f.target,onPick:()=>this.claim(f)},
+    ]);
+  },
+  claim(f){ if(this.count(f.type)<f.target) return; this.consume(f.type,f.target);
+    Economy.earn(f.reward); GS.data.decorInv[f.gift]=(GS.data.decorInv[f.gift]||0)+1; GS.data.festival.claimed=true;
+    UI.toast('🎉 Selamat! Hadiah festival: 🪙'+f.reward+' + '+DECOR[f.gift].name+' '+DECOR[f.gift].emoji);
+    Audio.sfx('milestone'); UI.confetti(); UI.haptic(15); SaveManager.request();
+  }
+};
+
 /* ====================================================================== */
 /* Interaction dispatcher — routes a tapped entry to the right system     */
 /* ====================================================================== */
@@ -2556,6 +2716,9 @@ const Interactions={
       case 'barn':     Ranch.openBarn(); break;
       case 'coop':     Ranch.openCoop(); break;
       case 'feeder':   Ranch.openFeeder(); break;
+      case 'pet':      Pet.interact(); break;
+      case 'museum':   Museum.open(); break;
+      case 'festival': Festivals.open(); break;
       case 'kitchen':  Cooking.open(); break;
       case 'shop':     Economy.openShop(); break;
       case 'shipping': Economy.openShipping(); break;
@@ -3009,6 +3172,7 @@ const Game={
     NPCSys.maybeEvent();
     Quests.ensure(); Mailbox.updateFlag();
     Economy.ensureDeal(); Decor.init(); Bugs.init(); Dig.daily();
+    Pet.init(); Festivals.refresh();
     UI.tutorialStart();
 
     GS.ready=true;
@@ -3034,6 +3198,7 @@ const Game={
       NPCSys.maybeEvent();
       Quests.ensure(); Mailbox.updateFlag();   // fresh quests + new daily gift
       Economy.ensureDeal(); Dig.daily();        // new shop deal + fresh dig spots
+      Festivals.refresh();                      // festival NPC for the new day
       SaveManager.save();
       UI.toast('☀️ Hari '+GS.data.day+' · '+GS.data.season+' '+SEASON_EMOJI[GS.data.season]);
       f.style.opacity='0';
@@ -3119,6 +3284,7 @@ const Game={
     World.animateDecor(GS.time);
     World.updateNPCs(dt);
     AnimalSys.updateWander(dt);
+    Pet.update(dt,GS.time);
     Bugs.update(GS.time);
     this._miniT=(this._miniT||0)+dt; if(this._miniT>0.2){ this._miniT=0; UI.drawMinimap(); }
 

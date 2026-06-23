@@ -38,6 +38,9 @@ Built with **Three.js (WebGL)**, primitive geometry only (no external 3D models)
 - 🐛 **Bug catching** (wandering critters you tap to net) and ⛏️ **fossil digging** (daily dig spots) — both tracked in the notebook.
 - 🏡 **Island decoration** — buy furniture and place/pick-up items freely on the ground in an edit mode; placements are saved.
 - 🗺️ **Mini-map**, 📷 **photo mode** (hide the HUD), and a 🛒 **daily shop deal** (one item sells for +50% each day).
+- 🐶 **Companion pet** — a dog/cat that follows you, can be petted (sometimes finds coins), named, and switched type.
+- 🏛️ **Museum** — donate one of each fish, bug, and fossil to fill the display cases (completion rewards).
+- 🎉 **Seasonal festivals** — each season has a festival day with a delivery challenge for coins + an exclusive decoration.
 - 📖 **Collection & progression** — notebook checklist, milestone confetti, land/coop expansion, character customization, and a nameable farm sign.
 - 🔊 **Juice & audio** — Web Audio generated ambient music + layered SFX, squash-stretch tweens, particle bursts, and floating popups.
 - 💾 **Versioned save system** — debounced autosave + save-on-sleep, with a graceful in-memory fallback if `localStorage` is unavailable.
