@@ -560,8 +560,13 @@ function defaultSave(){
     inventory:{},                        // {id:qty}
     plots:Array.from({length:9},()=>({tilled:false,crop:null,planted:0,grown:false,watered:false})),
     plotsExpanded:false,                 // 3x3 -> extra plots (TODO simple)
-    animals:{                            // mood 0..100, last produce timestamp(in-game sec)
-      sapi:{mood:60,last:0,name:null}, ayam:{mood:60,last:0,name:null}, domba:{mood:60,last:0,name:null}
+    ranch:{                              // upgradeable barn (mammals) + coop (chickens)
+      barnLevel:1, coopLevel:1, nextId:4,
+      animals:[                          // {id,type,name,mood,last,ready}
+        {id:1,type:'sapi', name:null,mood:60,last:0,ready:false},
+        {id:2,type:'ayam', name:null,mood:60,last:0,ready:false},
+        {id:3,type:'domba',name:null,mood:60,last:0,ready:false},
+      ]
     },
     tools:{watering:1, rod:1, shoes:0}, // watering can / fishing rod / running shoes levels
     recipesUnlocked:{salad:true,smoothie:true,omelet:false,steak:false},
@@ -606,6 +611,19 @@ const SaveManager = {
       data.notebook=Object.assign({crops:{},recipes:{},animals:{},fish:{},bugs:{},fossils:{}}, data.notebook);
       data.decorInv=data.decorInv||{};
       data.placedDecor=data.placedDecor||[];
+      // migrate legacy single-animal save → multi-animal ranch
+      if(!data.ranch){
+        const lg=data.animals||{};
+        data.ranch={barnLevel:1,coopLevel:1,nextId:4,animals:[
+          {id:1,type:'sapi', name:(lg.sapi&&lg.sapi.name)||null, mood:(lg.sapi&&lg.sapi.mood)||60, last:0,ready:false},
+          {id:2,type:'ayam', name:(lg.ayam&&lg.ayam.name)||null, mood:(lg.ayam&&lg.ayam.mood)||60, last:0,ready:false},
+          {id:3,type:'domba',name:(lg.domba&&lg.domba.name)||null,mood:(lg.domba&&lg.domba.mood)||60,last:0,ready:false},
+        ]};
+      }
+      data.ranch.barnLevel=data.ranch.barnLevel||1;
+      data.ranch.coopLevel=data.ranch.coopLevel||1;
+      data.ranch.animals=data.ranch.animals||[];
+      data.ranch.nextId=data.ranch.nextId||(data.ranch.animals.length+1);
       data.shopDeal=Object.assign({day:0,id:null}, data.shopDeal);
       data.stats=Object.assign({eggCollected:false,dishesCooked:0,fishCaught:0}, data.stats);
       data.totals=Object.assign({harvest:0,fish:0,cook:0,coins:0,pet:0,sold:0}, data.totals);
@@ -1141,15 +1159,8 @@ const World = {
       this.register(p,'plot',{index:i},1.9, TILE*0.95);
     }
 
-    // ---- coop area + animals ----
-    const coop=Builders.coop(); coop.position.set(-9,0,-6); sc.add(coop);
-    const cow=Builders.cow(); cow.position.set(-9,0,-2.5); sc.add(cow);
-    const chick=Builders.chicken(); chick.position.set(-7,0,-1); sc.add(chick);
-    const sheep=Builders.sheep(); sheep.position.set(-11,0,-1.5); sc.add(sheep);
-    this.animalObjs={sapi:cow,ayam:chick,domba:sheep};
-    this.register(cow,'animal',{key:'sapi'},2.2,1.8);
-    this.register(chick,'animal',{key:'ayam'},1.8,1.4);
-    this.register(sheep,'animal',{key:'domba'},2.0,1.6);
+    // ---- ranch: upgradeable barn + coop with buyable livestock ----
+    this.buildRanch();
 
     // ---- kitchen ----
     const kitchen=Builders.kitchen(); kitchen.position.set(8,0,-5); sc.add(kitchen);
@@ -1196,6 +1207,35 @@ const World = {
       n.userData.target=n.userData.home.clone();
       n.userData.entry=entry; n.userData.wait=Util.rand(1,4); n.userData.face=0;
     });
+  },
+
+  // ---- ranch construction ----
+  buildRanch(){
+    const sc=SceneSetup.scene;
+    const barn=Builders.coop(); barn.position.set(-9,0,-6.5); barn.scale.set(1.15,1.15,1.15); sc.add(barn); this.barnMesh=barn;
+    this.register(barn,'barn',{},2.8,3.2);
+    const coop=Builders.coop(); coop.position.set(-14.5,0,-5); coop.scale.set(0.7,0.7,0.7); sc.add(coop); this.coopMesh=coop;
+    this.register(coop,'coop',{},2.4,2.2);
+    // signs
+    this.animalObjs={};
+    GS.data.ranch.animals.forEach(a=>this.spawnAnimal(a));
+    this.layoutAnimals();
+    AnimalSys.refreshIndicators();
+  },
+  spawnAnimal(a){
+    const build={sapi:'cow',domba:'sheep',ayam:'chicken'}[a.type];
+    const m=Builders[build](); SceneSetup.scene.add(m);
+    m.userData.animalId=a.id; this.animalObjs[a.id]=m;
+    m.userData.entry=this.register(m,'animal',{id:a.id}, a.type==='ayam'?1.6:2.0, a.type==='ayam'?1.4:1.8);
+  },
+  layoutAnimals(){
+    const mam=GS.data.ranch.animals.filter(a=>a.type!=='ayam');
+    const chk=GS.data.ranch.animals.filter(a=>a.type==='ayam');
+    mam.forEach((a,i)=>{ const m=this.animalObjs[a.id]; if(!m) return; const col=i%3,row=Math.floor(i/3);
+      m.position.set(-11+col*1.9, 0, -2.6+row*1.9); });
+    chk.forEach((a,i)=>{ const m=this.animalObjs[a.id]; if(!m) return; const col=i%3,row=Math.floor(i/3);
+      m.position.set(-16+col*1.2, 0, -2.4+row*1.2); });
+    GS.data.ranch.animals.forEach(a=>{ const m=this.animalObjs[a.id]; if(m&&m.userData.entry) m.userData.entry.hit.position.set(m.position.x,0.6,m.position.z); });
   },
 
   buildFence(){
@@ -1752,93 +1792,97 @@ const Farming={
   }
 };
 
-/* ---- Animals ---- */
+/* ---- Animals (multi-animal, upgradeable ranch) ---- */
+const ANIMAL_DEF={
+  sapi: {label:'Sapi',  build:'cow',     product:'susu',  action:'🥛 Perah susu',  actIcon:'🥛', cost:120, house:'barn', interval:35},
+  domba:{label:'Domba', build:'sheep',   product:'wol',   action:'✂️ Cukur wol',   actIcon:'✂️', cost:140, house:'barn', interval:45},
+  ayam: {label:'Ayam',  build:'chicken', product:'telur', action:'🥚 Ambil telur', actIcon:'🥚', cost:70,  house:'coop', interval:25},
+};
 const AnimalSys={
-  lastInteract:{},
-  produceMesh:{},   // dropped product meshes by animal key
-  interact(key){
-    const a=GS.data.animals[key];
-    // if a product is sitting out, collect it
-    if(this.produceMesh[key]){ this.collect(key); return; }
-    // choose feed or pet via quick menu
-    UI.choice('Interaksi '+this.label(key),[
-      {id:'feed',icon:'🌾',title:'Beri makan',meta:Inv.has('jagung')?'pakai jagung':'pakai rumput',onPick:()=>this.feed(key)},
-      {id:'pet',icon:'🤚',title:'Elus / sapa',meta:'+mood',onPick:()=>this.pet(key)},
-      {id:'name',icon:'🏷️',title:GS.data.animals[key].name?'Ganti nama':'Beri nama',meta:GS.data.animals[key].name||'-',onPick:()=>this.rename(key)},
-    ]);
+  get(id){ return GS.data.ranch.animals.find(a=>a.id===id); },
+  label(a){ return a.name||ANIMAL_DEF[a.type].label; },
+  interact(id){
+    const a=this.get(id); if(!a) return;
+    const def=ANIMAL_DEF[a.type], opts=[];
+    if(a.ready) opts.push({id:'collect',icon:def.actIcon,title:def.action,meta:PRODUCTS[def.product].emoji,onPick:()=>this.collect(id)});
+    opts.push({id:'feed',icon:'🌾',title:'Beri makan',meta:Inv.has('jagung')?'pakai jagung':'pakai rumput',onPick:()=>this.feed(id)});
+    opts.push({id:'pet',icon:'🤚',title:'Elus / sapa',meta:'+mood',onPick:()=>this.pet(id)});
+    opts.push({id:'name',icon:'🏷️',title:a.name?'Ganti nama':'Beri nama',meta:a.name||'-',onPick:()=>this.rename(id)});
+    UI.choice(this.label(a)+' · ❤'+Math.round(a.mood)+'%', opts);
   },
-  rename(key){
-    UI.promptText('🏷️ Nama '+({sapi:'Sapi',ayam:'Ayam',domba:'Domba'}[key]), GS.data.animals[key].name||'', (v)=>{
-      GS.data.animals[key].name=v.trim().slice(0,12)||null;
-      UI.toast(GS.data.animals[key].name?('Namanya sekarang '+GS.data.animals[key].name+' 💛'):'Nama dihapus');
-      SaveManager.request();
-    });
-  },
-  label(k){ const a=GS.data.animals[k]; return a.name||({sapi:'Sapi',ayam:'Ayam',domba:'Domba'}[k]); },
-  feed(key){
-    const a=GS.data.animals[key];
-    if(Inv.has('jagung')){ Inv.remove('jagung',1); a.mood=Util.clamp(a.mood+30,0,100);}
-    else { a.mood=Util.clamp(a.mood+15,0,100); }
-    Energy.spend(1);
-    UI.popAt('😋 +mood', World.animalObjs[key].position);
-    Audio.sfx('animal'); UI.haptic(12); Tween.pop(World.animalObjs[key]);
-    Hearts(World.animalObjs[key].position);
-    SaveManager.request();
-  },
-  pet(key){
-    const a=GS.data.animals[key];
+  rename(id){ const a=this.get(id); if(!a) return;
+    UI.promptText('🏷️ Nama '+ANIMAL_DEF[a.type].label, a.name||'', v=>{ a.name=v.trim().slice(0,12)||null;
+      UI.toast(a.name?('Namanya sekarang '+a.name+' 💛'):'Nama dihapus'); SaveManager.request(); }); },
+  feed(id){ const a=this.get(id),m=World.animalObjs[id]; if(!a) return;
+    if(Inv.has('jagung')){ Inv.remove('jagung',1); a.mood=Util.clamp(a.mood+30,0,100); } else a.mood=Util.clamp(a.mood+15,0,100);
+    Energy.spend(1); if(m){ UI.popAt('😋 +mood',m.position); Tween.pop(m); Hearts(m.position); }
+    Audio.sfx('animal'); UI.haptic(12); SaveManager.request(); },
+  pet(id){ const a=this.get(id),m=World.animalObjs[id]; if(!a) return;
     a.mood=Util.clamp(a.mood+8,0,100);
-    UI.popAt('💗', World.animalObjs[key].position,'#ff5d7a');
-    Audio.sfx('heart'); UI.haptic(10); Tween.pop(World.animalObjs[key]);
-    Hearts(World.animalObjs[key].position,4);
-    Collection.markAnimal(key);
-    Quests.progress('pet'); Stats.inc('pet');
-    SaveManager.request();
-  },
-  collect(key){
-    const prod={sapi:'susu',ayam:'telur',domba:'wol'}[key];
-    Inv.add(prod,1);
+    if(m){ UI.popAt('💗',m.position,'#ff5d7a'); Tween.pop(m); Hearts(m.position,4); }
+    Audio.sfx('heart'); UI.haptic(10); Collection.markAnimal(a.type); Quests.progress('pet'); Stats.inc('pet'); SaveManager.request(); },
+  collect(id){ const a=this.get(id),m=World.animalObjs[id]; if(!a||!a.ready) return;
+    const prod=ANIMAL_DEF[a.type].product; Inv.add(prod,1);
     if(prod==='telur'){ GS.data.stats.eggCollected=true; this.checkRecipeUnlock(); }
-    UI.popAt('+1 '+PRODUCTS[prod].name+' '+PRODUCTS[prod].emoji, World.animalObjs[key].position,'#fff');
-    Audio.sfx('harvest'); UI.haptic(14);
-    const mesh=this.produceMesh[key];
-    Particles_burst(mesh.position,0xffffff,5);
-    // remove the produce interactable entry + invisible hitbox
-    const idx=World.interactables.findIndex(e=>e.root===mesh);
-    if(idx>=0){ SceneSetup.scene.remove(World.interactables[idx].hit); World.interactables.splice(idx,1); }
-    SceneSetup.scene.remove(mesh); this.produceMesh[key]=null;
-    SaveManager.request();
+    a.ready=false; a.last=GS.time; a.mood=Util.clamp(a.mood-6,0,100); this.setReady(a,false);
+    if(m){ UI.popAt('+1 '+PRODUCTS[prod].name+' '+PRODUCTS[prod].emoji,m.position,'#fff'); Particles_burst(new THREE.Vector3(m.position.x,1.2,m.position.z),0xffffff,5); Tween.pop(m); }
+    Audio.sfx('harvest'); UI.haptic(14); Collection.markAnimal(a.type); SaveManager.request(); },
+  feedAll(){ let n=0; GS.data.ranch.animals.forEach(a=>{ if(Inv.has('jagung')){ Inv.remove('jagung',1); a.mood=Util.clamp(a.mood+30,0,100); } else a.mood=Util.clamp(a.mood+12,0,100); n++;
+      const m=World.animalObjs[a.id]; if(m){ Tween.pop(m); Hearts(m.position,2); } });
+    Energy.spend(Math.min(6,n)); UI.toast('🌾 Memberi makan '+n+' hewan!'); Audio.sfx('animal'); UI.haptic(12); SaveManager.request(); },
+  checkRecipeUnlock(){ if(GS.data.stats.eggCollected && !GS.data.recipesUnlocked.omelet){ GS.data.recipesUnlocked.omelet=true; UI.toast('Resep baru terbuka: Omelet 🍳'); } },
+  // floating "ready" product icon above the animal
+  setReady(a,ready){ const m=World.animalObjs[a.id]; if(!m) return;
+    if(ready && !m.userData.readyMesh){ const icon=this.productMesh(ANIMAL_DEF[a.type].product); icon.position.set(0,2,0); m.add(icon); m.userData.readyMesh=icon; }
+    else if(!ready && m.userData.readyMesh){ m.remove(m.userData.readyMesh); m.userData.readyMesh=null; } },
+  productMesh(prod){ if(prod==='telur') return new THREE.Mesh(new THREE.SphereGeometry(0.16,8,8),mat(0xfff8e7));
+    if(prod==='susu') return new THREE.Mesh(new THREE.CylinderGeometry(0.12,0.12,0.28,8),mat(0xffffff));
+    return new THREE.Mesh(new THREE.SphereGeometry(0.2,8,6),mat(0xf0f0f0)); },
+  refreshIndicators(){ GS.data.ranch.animals.forEach(a=>{ if(a.ready) this.setReady(a,true); }); },
+  // mood decay + becoming "ready" to produce when happy
+  tick(dt){ GS.data.ranch.animals.forEach(a=>{ a.mood=Util.clamp(a.mood-0.5*dt,0,100);
+    if(!a.ready && a.mood>70 && (GS.time-(a.last||0))>ANIMAL_DEF[a.type].interval){
+      a.ready=true; a.last=GS.time; this.setReady(a,true);
+      const m=World.animalObjs[a.id]; if(m){ UI.popAt(PRODUCTS[ANIMAL_DEF[a.type].product].emoji,m.position); Audio.sfx('pop'); }
+    } }); }
+};
+
+/* ---- Ranch management: buy livestock + upgrade barn/coop capacity ---- */
+const Ranch={
+  caps:{barn:[0,3,5,8], coop:[0,3,5,8]},     // capacity per level (max Lv3)
+  upCost:{barn:[0,0,300,700], coop:[0,0,250,600]},
+  lvl(house){ return house==='barn'?GS.data.ranch.barnLevel:GS.data.ranch.coopLevel; },
+  cap(house){ return this.caps[house][Math.min(this.lvl(house),3)]; },
+  count(house){ const types=house==='barn'?['sapi','domba']:['ayam']; return GS.data.ranch.animals.filter(a=>types.includes(a.type)).length; },
+  title(house){ return house==='barn'?'🐄 Kandang (Sapi & Domba)':'🐔 Kandang Ayam'; },
+  openBarn(){ this.open('barn'); },
+  openCoop(){ this.open('coop'); },
+  open(house){
+    const cap=this.cap(house),cnt=this.count(house),lvl=this.lvl(house);
+    const types=house==='barn'?['sapi','domba']:['ayam'], opts=[];
+    opts.push({id:'feedall',icon:'🌾',title:'Beri makan semua',meta:GS.data.ranch.animals.length+' hewan',onPick:()=>AnimalSys.feedAll()});
+    types.forEach(t=>{ const d=ANIMAL_DEF[t];
+      opts.push({id:'buy'+t,icon:({sapi:'🐄',domba:'🐑',ayam:'🐔'})[t],title:'Beli '+d.label,
+        meta:'🪙'+d.cost+' · '+cnt+'/'+cap, disabled:GS.data.coins<d.cost||cnt>=cap, onPick:()=>this.buy(t,house)}); });
+    if(lvl<3){ const c=this.upCost[house][lvl+1];
+      opts.push({id:'up',icon:'⬆️',title:'Upgrade kandang (Lv'+lvl+'→'+(lvl+1)+')',meta:'🪙'+c+' · kapasitas '+cap+'→'+this.caps[house][lvl+1],disabled:GS.data.coins<c,onPick:()=>this.upgrade(house)}); }
+    else opts.push({id:'max',icon:'⭐',title:'Kandang level maksimal',meta:'kapasitas '+cap,disabled:true,onPick:()=>{}});
+    UI.choice(this.title(house)+' · Lv'+lvl, opts);
   },
-  checkRecipeUnlock(){
-    if(GS.data.stats.eggCollected && !GS.data.recipesUnlocked.omelet){
-      GS.data.recipesUnlocked.omelet=true; UI.toast('Resep baru terbuka: Omelet 🍳');
-    }
+  buy(type,house){ const d=ANIMAL_DEF[type];
+    if(GS.data.coins<d.cost||this.count(house)>=this.cap(house)) return;
+    Economy.spend(d.cost);
+    const a={id:GS.data.ranch.nextId++,type,name:null,mood:60,last:GS.time,ready:false};
+    GS.data.ranch.animals.push(a); World.spawnAnimal(a); World.layoutAnimals();
+    UI.toast('🎉 '+d.label+' baru bergabung di kandang!'); Audio.sfx('animal'); UI.haptic(15);
+    SaveManager.request(); setTimeout(()=>this.open(house),160);
   },
-  // produce drop when mood high
-  tick(){
-    Object.keys(GS.data.animals).forEach(key=>{
-      const a=GS.data.animals[key];
-      // mood slowly decays
-      a.mood=Util.clamp(a.mood-0.03,0,100);
-      if(a.mood>80 && !this.produceMesh[key] && (GS.time-a.last)>20){
-        a.last=GS.time; this.dropProduce(key);
-      }
-    });
-  },
-  dropProduce(key){
-    const prod={sapi:'susu',ayam:'telur',domba:'wol'}[key];
-    const obj=World.animalObjs[key];
-    let mesh;
-    if(prod==='telur') mesh=new THREE.Mesh(new THREE.SphereGeometry(0.18,8,8),mat(0xfff8e7));
-    else if(prod==='susu') mesh=new THREE.Mesh(new THREE.CylinderGeometry(0.14,0.14,0.32,8),mat(0xffffff));
-    else mesh=new THREE.Mesh(new THREE.SphereGeometry(0.22,8,6),mat(0xf0f0f0));
-    mesh.position.set(obj.position.x+0.6,0.3,obj.position.z+0.6);
-    mesh.scale.set(1,0.8,1); SceneSetup.scene.add(mesh);
-    this.produceMesh[key]=mesh;
-    // register a temp interactable on the produce (bigger hitbox)
-    World.register(mesh,'produce',{key},1.8,1.2);
-    UI.popAt(PRODUCTS[prod].emoji, obj.position);
-    Audio.sfx('pop');
+  upgrade(house){ const lvl=this.lvl(house); if(lvl>=3) return; const c=this.upCost[house][lvl+1];
+    if(GS.data.coins<c) return; Economy.spend(c);
+    if(house==='barn') GS.data.ranch.barnLevel++; else GS.data.ranch.coopLevel++;
+    const mesh=house==='barn'?World.barnMesh:World.coopMesh; if(mesh) mesh.scale.multiplyScalar(1.12);
+    UI.toast('⬆️ Kandang di-upgrade! Kapasitas '+this.cap(house)); UI.haptic(15); UI.confetti();
+    SaveManager.request(); setTimeout(()=>this.open(house),160);
   }
 };
 function Hearts(pos,n=3){ for(let i=0;i<n;i++){ setTimeout(()=>Particles_burst(new THREE.Vector3(pos.x,pos.y+1.4,pos.z),0xff5d7a,1,{spread:0.4,size:0.12}),i*80); } }
@@ -2427,9 +2471,9 @@ const Interactions={
     UI.haptic(10);
     switch(entry.kind){
       case 'plot':     Farming.interact(entry.data.index); break;
-      case 'animal':   AnimalSys.interact(entry.data.key); break;
-      case 'produce':  AnimalSys.collect(entry.data.key);
-                       this._removeEntry(entry); break;
+      case 'animal':   AnimalSys.interact(entry.data.id); break;
+      case 'barn':     Ranch.openBarn(); break;
+      case 'coop':     Ranch.openCoop(); break;
       case 'kitchen':  Cooking.open(); break;
       case 'shop':     Economy.openShop(); break;
       case 'shipping': Economy.openShipping(); break;
@@ -2952,7 +2996,8 @@ const Game={
 
   /* ---- idle animation for animals & customers ---- */
   animateCreatures(t){
-    Object.values(World.animalObjs).forEach((a,i)=>{ a.position.y=Math.sin(t*1.6+i)*0.04; });
+    Object.values(World.animalObjs).forEach((a,i)=>{ a.position.y=Math.sin(t*1.6+i)*0.04;
+      if(a.userData.readyMesh){ a.userData.readyMesh.rotation.y=t*2; a.userData.readyMesh.position.y=2+Math.sin(t*3+i)*0.12; } });
     World.customers.forEach((c,i)=>{ c.position.y=Math.sin(t*2+i)*0.03; });
     // NPC gentle bob
     Object.values(World.npcObjs).forEach((n,i)=>{ const u=n.userData; n.children[1].position.y=1.42+Math.sin(t*2+i)*0.02; });
@@ -2982,7 +3027,7 @@ const Game={
     // system ticks
     this.growTimer+=dt;
     if(this.growTimer>0.5){ this.growTimer=0; Farming.tick(); }
-    AnimalSys.tick();
+    AnimalSys.tick(dt);
     if(!Cooking.busy) Customers.tick(dt);
 
     // refresh crop growth visuals occasionally (cheap)

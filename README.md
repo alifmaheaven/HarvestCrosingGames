@@ -23,7 +23,7 @@ Built with **Three.js (WebGL)**, primitive geometry only (no external 3D models)
 - **Isometric smooth-follow camera** (45°, no OrbitControls) with subtle look-ahead.
 - **Full day/season/weather cycle** — gradual sky/fog/light color transitions (morning → midday → golden hour → dusk → night with stars & fireflies), 4 seasons, daily weather (rain auto-waters crops), and a sleep-to-advance-day mechanic.
 - 🌾 **Farming** — till, plant, water, harvest; seasonal seeds; a Level-2 watering can that waters a 3×3 at once.
-- 🐮 **Ranching** — cow, chicken, sheep with mood; feed and pet (with heart particles); products drop when happy.
+- 🐮 **Ranching** — an upgradeable barn (cows & sheep) and chicken coop: buy more livestock up to each building's capacity, then milk cows, shear sheep, and collect eggs when an animal is ready (a product icon floats above it), feed/pet individuals or "feed all" at once, and name your animals.
 - 🍳 **Cooking** — 4 recipes with gradual unlocks and a recipe book (locked recipes shown as silhouettes).
 - 🎣 **Fishing** — cast at a pond/lake, wait for a bite, then a skill-based "reel" mini-game (tap when the marker is in the green zone). Catch 7 fish types (plus the occasional old boot), tracked in the notebook. Cozy: failing just lets the fish escape, no penalty.
 - 🔍 **Camera zoom** — pinch to zoom on mobile, on-screen ＋/－ buttons, or the mouse wheel on desktop; the level is saved.
