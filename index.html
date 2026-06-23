@@ -521,6 +521,11 @@ function defaultSave(){
     settings:{music:0.4,sfx:0.7,haptic:true,sensitivity:1.0,zoom:1.0},
     shippingBin:{},                      // {id:qty} sold next morning
     stats:{eggCollected:false, dishesCooked:0, fishCaught:0},
+    totals:{harvest:0,fish:0,cook:0,coins:0,pet:0,sold:0}, // lifetime (for achievements)
+    quests:{day:0,list:[],claimed:false},                  // daily quests
+    mailbox:{lastClaim:0},                                  // daily gift claim day
+    achievements:{},                                        // {id:'done'}
+    friendGifts:{sari:0,tono:0,mira:0},                     // highest friendship-gift threshold given
     onboardDone:false,
   };
 }
@@ -545,6 +550,11 @@ const SaveManager = {
       data.settings=Object.assign({music:0.4,sfx:0.7,haptic:true,sensitivity:1.0,zoom:1.0}, data.settings);
       data.notebook=Object.assign({crops:{},recipes:{},animals:{},fish:{}}, data.notebook);
       data.stats=Object.assign({eggCollected:false,dishesCooked:0,fishCaught:0}, data.stats);
+      data.totals=Object.assign({harvest:0,fish:0,cook:0,coins:0,pet:0,sold:0}, data.totals);
+      data.quests=Object.assign({day:0,list:[],claimed:false}, data.quests);
+      data.mailbox=Object.assign({lastClaim:0}, data.mailbox);
+      data.achievements=data.achievements||{};
+      data.friendGifts=Object.assign({sari:0,tono:0,mira:0}, data.friendGifts);
       return data;
     }catch(e){ console.warn('Load gagal, mulai baru',e); return defaultSave(); }
   },
@@ -1220,6 +1230,8 @@ const World = {
     const mbBox=new THREE.Mesh(new THREE.BoxGeometry(0.3,0.3,0.5),mat(0xff5d5d)); mbBox.position.set(0,0.85,0); mb.add(mbBox);
     const mbFlag=new THREE.Mesh(new THREE.BoxGeometry(0.04,0.18,0.12),mat(0xffd35e)); mbFlag.position.set(0.16,0.95,0.1); mb.add(mbFlag);
     mb.position.set(-4,0,9.4); mb.traverse(o=>{if(o.isMesh)o.castShadow=true;}); sc.add(mb);
+    World.mailFlag=mbFlag;                       // raised when a daily gift waits
+    this.register(mb,'mailbox',{},2.0,1.8);
     // lamp posts along the path (glow at night)
     this.lamps=[];
     [[3,2],[-3,-2],[3,-6],[-3,6],[3,10],[-3,12]].forEach(([x,z])=>{
@@ -1616,6 +1628,7 @@ const Farming={
     const p=GS.data.plots[i], key=p.crop;
     Inv.add(key,1);
     Collection.markCrop(key);
+    Quests.progress('harvest'); Stats.inc('harvest');
     UI.popAt('+1 '+CROPS[key].name+' '+CROPS[key].emoji, World.plotMeshes[i].position,'#fff');
     Audio.sfx('harvest'); UI.haptic(14);
     Particles_burst(World.plotMeshes[i].position, CROPS[key].fruit, 6);
@@ -1649,7 +1662,15 @@ const AnimalSys={
     UI.choice('Interaksi '+this.label(key),[
       {id:'feed',icon:'🌾',title:'Beri makan',meta:Inv.has('jagung')?'pakai jagung':'pakai rumput',onPick:()=>this.feed(key)},
       {id:'pet',icon:'🤚',title:'Elus / sapa',meta:'+mood',onPick:()=>this.pet(key)},
+      {id:'name',icon:'🏷️',title:GS.data.animals[key].name?'Ganti nama':'Beri nama',meta:GS.data.animals[key].name||'-',onPick:()=>this.rename(key)},
     ]);
+  },
+  rename(key){
+    UI.promptText('🏷️ Nama '+({sapi:'Sapi',ayam:'Ayam',domba:'Domba'}[key]), GS.data.animals[key].name||'', (v)=>{
+      GS.data.animals[key].name=v.trim().slice(0,12)||null;
+      UI.toast(GS.data.animals[key].name?('Namanya sekarang '+GS.data.animals[key].name+' 💛'):'Nama dihapus');
+      SaveManager.request();
+    });
   },
   label(k){ const a=GS.data.animals[k]; return a.name||({sapi:'Sapi',ayam:'Ayam',domba:'Domba'}[k]); },
   feed(key){
@@ -1669,6 +1690,7 @@ const AnimalSys={
     Audio.sfx('heart'); UI.haptic(10); Tween.pop(World.animalObjs[key]);
     Hearts(World.animalObjs[key].position,4);
     Collection.markAnimal(key);
+    Quests.progress('pet'); Stats.inc('pet');
     SaveManager.request();
   },
   collect(key){
@@ -1743,6 +1765,7 @@ const Cooking={
       this.busy=false; Inv.add(key,1);
       GS.data.stats.dishesCooked++;
       Collection.markRecipe(key);
+      Quests.progress('cook'); Stats.inc('cook');
       this.checkSteakUnlock();
       UI.popAt('+1 '+r.name+' '+r.emoji, World.player.position,'#fff');
       Audio.sfx('done'); UI.haptic(15);
@@ -1829,14 +1852,27 @@ const Fishing={
     Util.$('#fish-time').style.width=Util.clamp(s.time/13*100,0,100)+'%';
   },
   win(){
-    const fish=this.pickFish(); this._finish();
-    Inv.add(fish,1);
-    if(!FISH[fish].junk){ GS.data.stats.fishCaught++; Collection.markFish(fish); }
-    UI.popAt('+1 '+FISH[fish].name+' '+FISH[fish].emoji, World.player.position,'#aee2ff');
-    UI.toast((FISH[fish].rarity>=4?'🎉 Tangkapan langka! ':'')+'Dapat '+FISH[fish].name+' '+FISH[fish].emoji);
-    Audio.sfx(FISH[fish].rarity>=4?'milestone':'done'); UI.haptic(15);
-    Particles_burst(new THREE.Vector3(World.player.position.x,1.4,World.player.position.z),0xaee2ff,7);
-    if(FISH[fish].rarity>=4) UI.confetti();
+    this._finish();
+    // variable reward: small chance of a treasure chest instead of a fish
+    if(Math.random()<0.10){
+      const c=Util.randInt(40,110); Economy.earn(c);
+      UI.popAt('🎁 +'+c+' 🪙', World.player.position,'#ffe08a');
+      UI.toast('🎁 Peti harta! Dapat 🪙'+c);
+      Audio.sfx('milestone'); UI.haptic(15); UI.confetti();
+      Particles_burst(new THREE.Vector3(World.player.position.x,1.4,World.player.position.z),0xffd84d,8);
+      SaveManager.request(); return;
+    }
+    const fish=this.pickFish();
+    const golden = !FISH[fish].junk && Math.random()<0.06;   // shiny variant
+    const gain = golden?2:1;                                  // golden = double
+    Inv.add(fish,gain);
+    if(!FISH[fish].junk){ GS.data.stats.fishCaught++; Collection.markFish(fish); Quests.progress('fish'); Stats.inc('fish'); }
+    const label=(golden?'✨ EMAS ✨ ':'')+FISH[fish].name+' '+FISH[fish].emoji+(golden?' x2':'');
+    UI.popAt('+'+gain+' '+FISH[fish].emoji, World.player.position,'#aee2ff');
+    UI.toast((FISH[fish].rarity>=4||golden?'🎉 ':'')+'Dapat '+label);
+    Audio.sfx(FISH[fish].rarity>=4||golden?'milestone':'done'); UI.haptic(15);
+    Particles_burst(new THREE.Vector3(World.player.position.x,1.4,World.player.position.z),golden?0xffd84d:0xaee2ff,golden?9:7);
+    if(FISH[fish].rarity>=4||golden) UI.confetti();
     SaveManager.request();
   },
   escape(){ this._finish(); UI.toast('🐟💨 Ikannya lolos… santai, coba lagi ya!'); Audio.sfx('step'); },
@@ -1865,7 +1901,7 @@ const Fishing={
 /* ---- Economy: shop, shipping bin, customers ---- */
 const Economy={
   spend(n){ GS.data.coins=Math.max(0,GS.data.coins-n); UI.updateCoins(); },
-  earn(n){ GS.data.coins+=n; UI.updateCoins(); Audio.sfx('coin'); },
+  earn(n){ GS.data.coins+=n; UI.updateCoins(); Audio.sfx('coin'); Stats.inc('coins',n); },
   // souvenir shop: sell raw goods instantly (lower price) + open upgrades
   _price(id){ return CROPS[id]?.sell||PRODUCTS[id]?.sell||FISH[id]?.sell||5; },
   openShop(){
@@ -1895,6 +1931,7 @@ const Economy={
   sell(id,price){
     if(!Inv.has(id)) return;
     Inv.remove(id,1); this.earn(price);
+    Quests.progress('sold'); Stats.inc('sold');
     UI.popAt('+'+price+' 🪙', World.player.position,'#ffe08a');
     UI.haptic(12); UI.tutorialDone();
     setTimeout(()=>this.openShop(),120);
@@ -1984,7 +2021,16 @@ const NPCSys={
     UI.showHearts(World.npcObjs[key], GS.data.friendship[key]);
     Audio.sfx('coin'); UI.haptic(15); this.request=null; SaveManager.request();
   },
-  addFriend(key,n){ GS.data.friendship[key]=Util.clamp(GS.data.friendship[key]+n,0,5); },
+  addFriend(key,n){
+    const before=GS.data.friendship[key];
+    GS.data.friendship[key]=Util.clamp(before+n,0,5);
+    const after=GS.data.friendship[key];
+    // friendship-milestone gifts (hati 3 & 5)
+    [3,5].forEach(th=>{ if(before<th && after>=th && (GS.data.friendGifts[key]||0)<th){
+      GS.data.friendGifts[key]=th; const c=th*25; Economy.earn(c);
+      UI.toast('💌 '+NPC_DATA[key].name+' mengirimimu hadiah! +🪙'+c); Audio.sfx('coin'); SaveManager.request();
+    }});
+  },
   // rare special visitor event (~1 in 4 days) — cheap: tweak Mira's offer
   maybeEvent(){
     if(GS.data.day%4===0){
@@ -2026,6 +2072,7 @@ const Customers={
     const happy=Math.random()<0.7;
     let pay=r.sell + (happy?Math.round(r.sell*0.2):0);
     Economy.earn(pay);
+    Quests.progress('sold'); Stats.inc('sold');
     UI.bubble(c, happy?('Enak sekali! 😍 +🪙'+pay):('Terima kasih 🙂 +🪙'+pay));
     UI.popAt('+'+pay+' 🪙', c.position,'#ffe08a');
     UI.haptic(14); Particles_burst(new THREE.Vector3(c.position.x,1.4,c.position.z),0xffd84d,5);
@@ -2065,6 +2112,89 @@ const Collection={
   celebrate(msg){ UI.toast(msg); Audio.sfx('milestone'); UI.confetti(); }
 };
 
+/* ---- Stats: lifetime counters that drive achievements ---- */
+const Stats={ inc(key,n=1){ GS.data.totals[key]=(GS.data.totals[key]||0)+n; Achievements.check(); } };
+
+/* ---- Achievements: lifetime milestones, auto-rewarded on unlock ---- */
+const ACHS=[
+  {id:'h10', icon:'🌾', name:'Petani Pemula',  desc:'Panen 10×',          key:'harvest', need:10,  reward:40},
+  {id:'h50', icon:'🌾', name:'Petani Ahli',    desc:'Panen 50×',          key:'harvest', need:50,  reward:120},
+  {id:'f10', icon:'🎣', name:'Pemancing',      desc:'Tangkap 10 ikan',     key:'fish',    need:10,  reward:60},
+  {id:'f30', icon:'🐠', name:'Raja Mancing',   desc:'Tangkap 30 ikan',     key:'fish',    need:30,  reward:150},
+  {id:'c10', icon:'🍳', name:'Koki Rumahan',   desc:'Masak 10 hidangan',   key:'cook',    need:10,  reward:80},
+  {id:'co500',icon:'🪙',name:'Saudagar',       desc:'Kumpulkan 500 koin',  key:'coins',   need:500, reward:100},
+  {id:'p20', icon:'❤️', name:'Sahabat Hewan',  desc:'Sapa hewan 20×',      key:'pet',     need:20,  reward:60},
+  {id:'s30', icon:'🛒', name:'Pedagang',       desc:'Jual 30 barang',      key:'sold',    need:30,  reward:80},
+];
+const Achievements={
+  check(){
+    ACHS.forEach(a=>{
+      if(!GS.data.achievements[a.id] && (GS.data.totals[a.key]||0)>=a.need){
+        GS.data.achievements[a.id]='done';
+        Economy.earn(a.reward); UI.toast('🏆 '+a.name+'! +🪙'+a.reward);
+        Audio.sfx('milestone'); UI.confetti(); SaveManager.request();
+      }
+    });
+  }
+};
+
+/* ---- Daily Quests: 3 small tasks per day, reward coins + friendship ---- */
+const Quests={
+  ensure(){
+    if(GS.data.quests.day!==GS.data.day){
+      GS.data.quests.day=GS.data.day;
+      GS.data.quests.claimed=false;
+      GS.data.quests.list=this.generate();
+      SaveManager.request();
+    }
+  },
+  generate(){
+    const pool=[
+      {type:'harvest',min:2,max:4,label:'Panen {n} hasil kebun',icon:'🌾'},
+      {type:'fish',   min:1,max:2,label:'Tangkap {n} ikan',     icon:'🎣'},
+      {type:'cook',   min:1,max:1,label:'Masak {n} hidangan',   icon:'🍳'},
+      {type:'pet',    min:2,max:3,label:'Sapa/elus {n} hewan',  icon:'🐮'},
+      {type:'sold',   min:2,max:4,label:'Jual {n} barang',      icon:'🛒'},
+    ].sort(()=>Math.random()-0.5).slice(0,3);
+    return pool.map(p=>{ const target=Util.randInt(p.min,p.max);
+      return {type:p.type,target,have:0,icon:p.icon,label:p.label.replace('{n}',target)}; });
+  },
+  progress(type,n=1){
+    this.ensure();
+    let changed=false;
+    GS.data.quests.list.forEach(q=>{ if(q.type===type && q.have<q.target){ q.have=Math.min(q.target,q.have+n); changed=true; } });
+    if(changed){
+      SaveManager.request();
+      if(this.allDone() && !GS.data.quests.claimed) UI.toast('📋 Misi harian selesai! Ambil hadiah di menu ☰');
+    }
+  },
+  allDone(){ return GS.data.quests.list.length>0 && GS.data.quests.list.every(q=>q.have>=q.target); },
+  claim(){
+    if(!this.allDone() || GS.data.quests.claimed) return;
+    GS.data.quests.claimed=true;
+    Economy.earn(60);
+    Object.keys(GS.data.friendship).forEach(k=>NPCSys.addFriend(k,0.3));
+    UI.toast('🎁 Hadiah misi harian: +🪙60 + ❤ semua warga!'); UI.confetti(); UI.haptic(15);
+    SaveManager.request();
+  }
+};
+
+/* ---- Mailbox: one gift per day ---- */
+const Mailbox={
+  available(){ return GS.data.mailbox.lastClaim!==GS.data.day; },
+  open(){
+    if(!this.available()){ UI.toast('📭 Belum ada surat. Cek lagi besok ya!'); return; }
+    GS.data.mailbox.lastClaim=GS.data.day; UI.haptic(12); Audio.sfx('coin');
+    const r=Math.random();
+    if(r<0.45){ const c=Util.randInt(25,60); Economy.earn(c); UI.toast('📬 Hadiah harian: 🪙'+c+'!'); }
+    else if(r<0.8){ const id=Util.pick(Object.keys(CROPS)); Inv.add(id,2); UI.toast('📬 Hadiah harian: 2 '+CROPS[id].name+' '+CROPS[id].emoji); }
+    else { const id=Util.pick(Object.keys(PRODUCTS).filter(k=>k!=='daging')); Inv.add(id,1); UI.toast('📬 Hadiah harian: '+PRODUCTS[id].name+' '+PRODUCTS[id].emoji); }
+    Particles_burst(new THREE.Vector3(World.player.position.x,1.4,World.player.position.z),0xffd84d,6);
+    this.updateFlag(); SaveManager.request();
+  },
+  updateFlag(){ if(World.mailFlag) World.mailFlag.rotation.z=this.available()?-0.9:0; }
+};
+
 /* ====================================================================== */
 /* Interaction dispatcher — routes a tapped entry to the right system     */
 /* ====================================================================== */
@@ -2085,6 +2215,7 @@ const Interactions={
       case 'wardrobe': UI.openCreator(); break;
       case 'sign':     UI.openRename(); break;
       case 'water':    Fishing.start(entry.data.spot); break;
+      case 'mailbox':  Mailbox.open(); break;
     }
   },
   _removeEntry(entry){
@@ -2222,6 +2353,8 @@ const UI={
       +this._slider('Sensitivitas', 'sensitivity', s.sensitivity, 0.5, 1.8)
       +this._toggleRow('Haptic (getar)', 'haptic', s.haptic)
       +this._toggleRow('Mode Santai (lewati menggembur)', 'casual', GS.data.casualMode)
+      +'<div class="row"><span>📋 Misi Harian</span><button class="btn sec" id="open-q">Buka</button></div>'
+      +'<div class="row"><span>🏆 Pencapaian</span><button class="btn sec" id="open-ach">Buka</button></div>'
       +'<div class="row"><span>📖 Buku Catatan</span><button class="btn sec" id="open-nb">Buka</button></div>'
       +'<div class="row"><span>🍳 Buku Resep</span><button class="btn sec" id="open-rb">Buka</button></div>'
       +'<div class="row"><span>👕 Ganti Penampilan</span><button class="btn sec" id="open-cc">Buka</button></div>'
@@ -2236,6 +2369,8 @@ const UI={
     body.querySelector('[data-t=haptic]').addEventListener('click',ev=>{ s.haptic=!s.haptic; ev.currentTarget.classList.toggle('on',s.haptic); SaveManager.request(); });
     body.querySelector('[data-t=casual]').addEventListener('click',ev=>{ GS.data.casualMode=!GS.data.casualMode; ev.currentTarget.classList.toggle('on',GS.data.casualMode); SaveManager.request(); });
     body.querySelector('#open-nb').addEventListener('click',()=>{ close(); this.openNotebook(); });
+    body.querySelector('#open-q').addEventListener('click',()=>{ close(); this.openQuests(); });
+    body.querySelector('#open-ach').addEventListener('click',()=>{ close(); this.openAchievements(); });
     body.querySelector('#open-rb').addEventListener('click',()=>{ close(); this.openRecipeBook(); });
     body.querySelector('#open-cc').addEventListener('click',()=>{ close(); this.openCreator(); });
     body.querySelector('#save-now').addEventListener('click',()=>{ SaveManager.save(); this.toast('Tersimpan ✅'); });
@@ -2297,6 +2432,44 @@ const UI={
     body.querySelectorAll('#out-sw .sw').forEach(sw=>sw.addEventListener('click',()=>{ c.outfit=+sw.dataset.i; body.querySelectorAll('#out-sw .sw').forEach(x=>x.classList.remove('sel')); sw.classList.add('sel'); Builders.recolorVillager(World.player,c.hair,c.outfit); SaveManager.request(); }));
     body.querySelector('#cc-done').addEventListener('click',()=>Util.$('#modal-creator').classList.remove('on'));
     Util.$('#modal-creator').classList.add('on');
+  },
+
+  /* ---- Daily quests panel ---- */
+  openQuests(){
+    Quests.ensure();
+    const body=Util.$('#notebook-body');
+    let html='<button class="close">✕</button><h2>📋 Misi Harian</h2>';
+    GS.data.quests.list.forEach(q=>{ const done=q.have>=q.target;
+      html+='<div class="row"><span>'+q.icon+' '+q.label+'</span><span class="meta">'+(done?'✅':q.have+'/'+q.target)+'</span></div>'; });
+    const can=Quests.allDone()&&!GS.data.quests.claimed;
+    html+='<button class="btn wide" id="q-claim"'+(can?'':' style="opacity:.5"')+'>'+(GS.data.quests.claimed?'Hadiah sudah diambil ✅':(can?'Ambil Hadiah 🎁 (+🪙60 +❤)':'Selesaikan semua misi dulu'))+'</button>';
+    body.innerHTML=html;
+    body.querySelector('.close').addEventListener('click',()=>Util.$('#modal-notebook').classList.remove('on'));
+    if(can) body.querySelector('#q-claim').addEventListener('click',()=>{ Quests.claim(); Util.$('#modal-notebook').classList.remove('on'); });
+    Util.$('#modal-notebook').classList.add('on');
+  },
+
+  /* ---- Achievements panel ---- */
+  openAchievements(){
+    const body=Util.$('#recipe-body');
+    let html='<button class="close">✕</button><h2>🏆 Pencapaian</h2>';
+    ACHS.forEach(a=>{ const got=GS.data.achievements[a.id], cur=Math.min(GS.data.totals[a.key]||0,a.need);
+      html+='<div class="row"><span>'+a.icon+' <b>'+a.name+'</b><br><small style="opacity:.7">'+a.desc+'</small></span><span class="meta">'+(got?'✅ +🪙'+a.reward:cur+'/'+a.need)+'</span></div>'; });
+    body.innerHTML=html;
+    body.querySelector('.close').addEventListener('click',()=>Util.$('#modal-recipe').classList.remove('on'));
+    Util.$('#modal-recipe').classList.add('on');
+  },
+
+  /* ---- generic text prompt (animal names, etc.) ---- */
+  promptText(title, val, cb){
+    const body=Util.$('#choice-body');
+    body.innerHTML='<button class="close">✕</button><h2>'+title+'</h2>'
+      +'<div class="row"><input class="text-in" id="prompt-in" maxlength="12" value="'+String(val||'').replace(/"/g,'')+'"></div>'
+      +'<button class="btn wide" id="prompt-ok">Simpan</button>';
+    const close=()=>Util.$('#modal-choice').classList.remove('on');
+    body.querySelector('.close').addEventListener('click',close);
+    body.querySelector('#prompt-ok').addEventListener('click',()=>{ const v=body.querySelector('#prompt-in').value; close(); cb(v); });
+    Util.$('#modal-choice').classList.add('on');
   },
 
   /* ---- Rename farm (via signboard) ---- */
@@ -2423,6 +2596,7 @@ const Game={
     // initial HUD
     UI.updateCoins(); UI.updateEnergy(); UI.renderInventory(); UI.updateDayLabel();
     NPCSys.maybeEvent();
+    Quests.ensure(); Mailbox.updateFlag();
     UI.tutorialStart();
 
     GS.ready=true;
@@ -2446,6 +2620,7 @@ const Game={
       GS.data.plots.forEach((p,i)=>World.refreshPlot(i));
       UI.updateCoins(); UI.updateEnergy(); UI.updateDayLabel(); UI.renderInventory();
       NPCSys.maybeEvent();
+      Quests.ensure(); Mailbox.updateFlag();   // fresh quests + new daily gift
       SaveManager.save();
       UI.toast('☀️ Hari '+GS.data.day+' · '+GS.data.season+' '+SEASON_EMOJI[GS.data.season]);
       f.style.opacity='0';

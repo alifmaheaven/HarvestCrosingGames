@@ -29,7 +29,11 @@ Built with **Three.js (WebGL)**, primitive geometry only (no external 3D models)
 - 🔍 **Camera zoom** — pinch to zoom on mobile, on-screen ＋/－ buttons, or the mouse wheel on desktop; the level is saved.
 - 🔧 **Upgrades** — a dedicated tool-upgrade shop: watering can Lv2/Lv3, fishing rod Lv2/Lv3 (wider catch zone, rarer fish), running shoes (faster movement), and land expansion.
 - 🛒 **Economy** — souvenir shop, a **shipping bin** (auto-sells the next morning), and restaurant customers (same NPC system, with reactions and tips).
-- 👥 **Villagers** — named NPCs with friendship hearts, rotating dialogue, small requests, and an occasional special-visitor event.
+- 👥 **Villagers** — named NPCs that wander, with friendship hearts, rotating dialogue, small requests, milestone gifts, and an occasional special-visitor event.
+- 📋 **Daily quests** — three small randomized tasks each day (harvest/fish/cook/pet/sell) with a coin + friendship reward.
+- 🏆 **Achievements** — lifetime milestones that auto-reward coins and celebrate with confetti.
+- 📬 **Daily mailbox gift** — claim a coin/crop/product gift once per day (the flag pops up when one is waiting).
+- 🏷️ **Name your animals** and 🎁 **treasure chests / golden (shiny) fish** while fishing for variable rewards.
 - 📖 **Collection & progression** — notebook checklist, milestone confetti, land/coop expansion, character customization, and a nameable farm sign.
 - 🔊 **Juice & audio** — Web Audio generated ambient music + layered SFX, squash-stretch tweens, particle bursts, and floating popups.
 - 💾 **Versioned save system** — debounced autosave + save-on-sleep, with a graceful in-memory fallback if `localStorage` is unavailable.
