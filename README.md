@@ -25,6 +25,9 @@ Built with **Three.js (WebGL)**, primitive geometry only (no external 3D models)
 - 🌾 **Farming** — till, plant, water, harvest; seasonal seeds; a Level-2 watering can that waters a 3×3 at once.
 - 🐮 **Ranching** — cow, chicken, sheep with mood; feed and pet (with heart particles); products drop when happy.
 - 🍳 **Cooking** — 4 recipes with gradual unlocks and a recipe book (locked recipes shown as silhouettes).
+- 🎣 **Fishing** — cast at a pond/lake, wait for a bite, then a skill-based "reel" mini-game (tap when the marker is in the green zone). Catch 7 fish types (plus the occasional old boot), tracked in the notebook. Cozy: failing just lets the fish escape, no penalty.
+- 🔍 **Camera zoom** — pinch to zoom on mobile, on-screen ＋/－ buttons, or the mouse wheel on desktop; the level is saved.
+- 🔧 **Upgrades** — a dedicated tool-upgrade shop: watering can Lv2/Lv3, fishing rod Lv2/Lv3 (wider catch zone, rarer fish), running shoes (faster movement), and land expansion.
 - 🛒 **Economy** — souvenir shop, a **shipping bin** (auto-sells the next morning), and restaurant customers (same NPC system, with reactions and tips).
 - 👥 **Villagers** — named NPCs with friendship hearts, rotating dialogue, small requests, and an occasional special-visitor event.
 - 📖 **Collection & progression** — notebook checklist, milestone confetti, land/coop expansion, character customization, and a nameable farm sign.

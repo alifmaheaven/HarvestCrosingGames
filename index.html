@@ -205,6 +205,30 @@ html,body{
   box-shadow:0 3px 6px rgba(0,0,0,.18);transition:opacity .2s;}
 .bubble::after{content:'';position:absolute;left:50%;bottom:-8px;margin-left:-7px;
   border:7px solid transparent;border-top-color:#fff;}
+
+/* zoom controls (pinch also supported) */
+#zoom-ctrl{position:fixed;right:calc(var(--safe-r) + 12px);bottom:calc(var(--safe-b) + 140px);
+  display:flex;flex-direction:column;gap:8px;z-index:11;}
+#zoom-ctrl button{width:44px;height:44px;border-radius:50%;border:2px solid var(--panel-edge);
+  background:rgba(255,249,236,.92);font-size:22px;font-weight:800;color:var(--ink);
+  box-shadow:0 3px 0 rgba(0,0,0,.12);display:flex;align-items:center;justify-content:center;}
+#zoom-ctrl button:active{transform:translateY(2px);box-shadow:0 1px 0 rgba(0,0,0,.12);}
+
+/* fishing mini-game */
+.fish-meta{text-align:center;font-size:13px;opacity:.85;margin-bottom:6px;}
+.fish-track{position:relative;height:36px;background:#e7f0f7;border:2px solid var(--panel-edge);
+  border-radius:14px;overflow:hidden;margin:12px 0 8px;}
+.fish-zone{position:absolute;top:0;bottom:0;background:rgba(106,168,79,.55);
+  border-left:2px solid #3f6f33;border-right:2px solid #3f6f33;}
+.fish-marker{position:absolute;top:-2px;width:8px;height:40px;background:#ff5d5d;border-radius:4px;
+  box-shadow:0 0 6px rgba(0,0,0,.35);}
+.fish-bar{height:18px;background:#eee;border-radius:10px;overflow:hidden;border:2px solid var(--panel-edge);}
+.fish-fill{height:100%;width:25%;background:linear-gradient(90deg,#6aa84f,#9fd86f);transition:width .08s linear;}
+.fish-timer{height:6px;background:#eee;border-radius:4px;overflow:hidden;margin-top:8px;}
+.fish-timer>div{height:100%;width:100%;background:#ff9f43;}
+#fish-tap{width:100%;margin-top:14px;padding:16px;font-size:18px;}
+.fish-flash{animation:fishFlash .25s ease-out;}
+@keyframes fishFlash{0%{filter:brightness(1.7)}100%{filter:brightness(1)}}
 </style>
 </head>
 <body>
@@ -217,6 +241,7 @@ html,body{
   <div id="day-pill" class="hud-pill"><span id="day-line">Hari 1 · Semi</span><small id="time-line">Pagi · ☀️</small></div>
   <button id="menu-btn">☰</button>
   <div id="tool-pill">✋</div>
+  <div id="zoom-ctrl"><button id="zoom-in">＋</button><button id="zoom-out">－</button></div>
   <div id="inv-bar"></div>
   <div id="save-dot">💾</div>
   <div id="tip"></div>
@@ -258,6 +283,7 @@ html,body{
 <div id="modal-recipe" class="modal"><div class="panel" id="recipe-body"></div></div>
 <div id="modal-choice" class="modal"><div class="panel" id="choice-body"></div></div>
 <div id="modal-creator" class="modal"><div class="panel" id="creator-body"></div></div>
+<div id="modal-fishing" class="modal"><div class="panel" id="fishing-body"></div></div>
 
 <!-- Three.js via importmap (CDN, ESM) -->
 <script type="importmap">
@@ -322,6 +348,16 @@ const RECIPES = {
   smoothie: {name:'Smoothie', emoji:'🥤', need:{stroberi:1,susu:1}, sell:54,  unlock:'start'},
   omelet:   {name:'Omelet',   emoji:'🍳', need:{telur:1,susu:1},    sell:60,  unlock:'egg'},
   steak:    {name:'Steak',    emoji:'🥩', need:{daging:1,wortel:1}, sell:90,  unlock:'milestone'},
+};
+// Fish catalog (rarity 0=junk .. 5=legendary). Caught via the fishing mini-game.
+const FISH = {
+  boot:    {name:'Sepatu Butut', emoji:'🥾', sell:3,   rarity:0, weight:14},
+  ikan_kecil:{name:'Ikan Kecil', emoji:'🐟', sell:16,  rarity:1, weight:34},
+  ikan_mas:{name:'Ikan Mas',     emoji:'🐠', sell:28,  rarity:2, weight:24},
+  bintang: {name:'Bintang Laut', emoji:'⭐', sell:34,  rarity:3, weight:12},
+  kakap:   {name:'Kakap Merah',  emoji:'🐡', sell:48,  rarity:3, weight:10},
+  cumi:    {name:'Cumi-cumi',    emoji:'🦑', sell:64,  rarity:4, weight:5},
+  hiu:     {name:'Hiu Kecil',    emoji:'🦈', sell:130, rarity:5, weight:1},
 };
 
 /* ====================================================================== */
@@ -475,16 +511,16 @@ function defaultSave(){
     animals:{                            // mood 0..100, last produce timestamp(in-game sec)
       sapi:{mood:60,last:0,name:null}, ayam:{mood:60,last:0,name:null}, domba:{mood:60,last:0,name:null}
     },
-    tools:{watering:1},                  // watering can level
+    tools:{watering:1, rod:1, shoes:0}, // watering can / fishing rod / running shoes levels
     recipesUnlocked:{salad:true,smoothie:true,omelet:false,steak:false},
     friendship:{sari:0,tono:0,mira:0},
     greetedToday:[],
-    notebook:{crops:{},recipes:{},animals:{}},  // collection checklists
+    notebook:{crops:{},recipes:{},animals:{},fish:{}},  // collection checklists
     customize:{hair:0,outfit:0},
     casualMode:false,
-    settings:{music:0.4,sfx:0.7,haptic:true,sensitivity:1.0},
+    settings:{music:0.4,sfx:0.7,haptic:true,sensitivity:1.0,zoom:1.0},
     shippingBin:{},                      // {id:qty} sold next morning
-    stats:{eggCollected:false, dishesCooked:0},
+    stats:{eggCollected:false, dishesCooked:0, fishCaught:0},
     onboardDone:false,
   };
 }
@@ -503,7 +539,13 @@ const SaveManager = {
       if(!raw) return defaultSave();
       let data=JSON.parse(raw);
       data=this.migrate(data);
-      return Object.assign(defaultSave(), data); // fill any missing keys
+      data=Object.assign(defaultSave(), data); // fill any missing top-level keys
+      // deep-fill nested objects so older saves still receive new keys
+      data.tools=Object.assign({watering:1,rod:1,shoes:0}, data.tools);
+      data.settings=Object.assign({music:0.4,sfx:0.7,haptic:true,sensitivity:1.0,zoom:1.0}, data.settings);
+      data.notebook=Object.assign({crops:{},recipes:{},animals:{},fish:{}}, data.notebook);
+      data.stats=Object.assign({eggCollected:false,dishesCooked:0,fishCaught:0}, data.stats);
+      return data;
     }catch(e){ console.warn('Load gagal, mulai baru',e); return defaultSave(); }
   },
   migrate(data){
@@ -535,6 +577,7 @@ const SceneSetup = {
   renderer:null, scene:null, camera:null,
   camTarget:new THREE.Vector3(), lookAhead:new THREE.Vector3(),
   sun:null, ambient:null, hemi:null,
+  baseD:13, zoom:1,
   init(canvas){
     this.renderer=new THREE.WebGLRenderer({canvas, antialias:true, alpha:false});
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio,2)); // perf cap
@@ -544,9 +587,8 @@ const SceneSetup = {
     this.scene.fog=new THREE.Fog(0xcfe8ff, 34, 120);
 
     // Fixed isometric-ish camera (no OrbitControls). Ortho for clean low-poly look.
-    const aspect=window.innerWidth/window.innerHeight;
-    const d=13;
-    this.camera=new THREE.OrthographicCamera(-d*aspect,d*aspect,d,-d,0.1,200);
+    this.zoom=(GS.data&&GS.data.settings&&GS.data.settings.zoom)||1;
+    this.camera=new THREE.OrthographicCamera(-13,13,13,-13,0.1,200);
     this.camOffset=new THREE.Vector3(16,18,16); // 45° feel
     this.camera.position.copy(this.camOffset);
     this.camera.lookAt(0,0,0);
@@ -565,12 +607,19 @@ const SceneSetup = {
     window.addEventListener('resize',()=>this.onResize());
     window.addEventListener('orientationchange',()=>setTimeout(()=>this.onResize(),200));
   },
-  onResize(){
-    const w=window.innerWidth,h=window.innerHeight,aspect=w/h,d=13;
+  onResize(){ this.applyCamera(); },
+  // recompute the ortho frustum from base size + zoom factor (zoom>1 = closer)
+  applyCamera(){
+    const w=window.innerWidth,h=window.innerHeight,aspect=w/h,d=this.baseD/this.zoom;
     this.camera.left=-d*aspect; this.camera.right=d*aspect;
     this.camera.top=d; this.camera.bottom=-d;
     this.camera.updateProjectionMatrix();
     this.renderer.setSize(w,h);
+  },
+  setZoom(z){
+    this.zoom=Util.clamp(z,0.55,2.0);
+    if(GS.data&&GS.data.settings){ GS.data.settings.zoom=this.zoom; SaveManager.request(); }
+    this.applyCamera();
   },
   // smooth follow with subtle look-ahead toward movement direction
   follow(targetPos, moveDir, dt){
@@ -976,7 +1025,7 @@ const World = {
     this.buildFence();
     this.buildGrass();
     // decorative detail — each isolated so a failure here can never blank the world
-    ['buildFlowers','buildScatter','buildPond','buildClouds','buildExtras','buildLandmarks'].forEach(fn=>{
+    ['buildFlowers','buildScatter','buildPond','buildLake','buildClouds','buildExtras','buildLandmarks'].forEach(fn=>{
       try{ this[fn](); }catch(e){ console.warn('Decor dilewati:',fn,e); }
     });
 
@@ -1082,7 +1131,7 @@ const World = {
     const occ=[[-9,-6,3.2],[8,-5,3.2],[5,8,3.2],[2,9,2.4],[-6,8,3.2],[-6,11.5,2.6],
       [8,3,2.4],[11,5,2.4],[6,11,2.2],[12,9,2.2],[-3,4,2.2],[-3.6,8,2],[0,12.5,2],
       [-9,-2.5,2.6],[-7,-1,2],[-11,-1.5,2],[13,-1,3.2],
-      [-14,7,3],[16,14,4.5],[14,-8,2.5],[-15,-9,2.5],[10,-13,2.5]]; // buildings/pond/landmarks
+      [-14,7,3],[16,14,4.5],[14,-8,2.5],[-15,-9,2.5],[10,-13,2.5],[-15,13,4]]; // buildings/pond/lake/landmarks
     for(const [ox,oz,r] of occ){ if(Math.hypot(x-ox,z-oz)<r) return false; }
     return true;
   },
@@ -1130,6 +1179,24 @@ const World = {
     for(let i=0;i<n;i++){ const a=i/n*Math.PI*2; d.position.set(cx+Math.cos(a)*2.5,0.12,cz+Math.sin(a)*2.5); d.scale.setScalar(Util.rand(0.7,1.2)); d.rotation.set(0,a,0); d.updateMatrix(); rim.setMatrixAt(i,d.matrix); }
     sc.add(rim);
     for(let i=0;i<4;i++){ const pad=new THREE.Mesh(new THREE.CircleGeometry(0.3,10),mat(0x4f9e4f)); pad.rotation.x=-Math.PI/2; pad.position.set(cx+Util.rand(-1.4,1.4),0.08,cz+Util.rand(-1.4,1.4)); sc.add(pad); }
+    this.register(water,'water',{spot:'Kolam'},3.2,3.0);   // fishing spot
+    this._buildDock(cx,cz-2.7,0);
+  },
+  // a second fishing lake with reeds + a dock, for variety
+  buildLake(){
+    const cx=-15,cz=13,sc=SceneSetup.scene;
+    const water=new THREE.Mesh(new THREE.CircleGeometry(3.2,30),mat(0x4aa3d6,{transparent:true,opacity:0.9,roughness:0.2}));
+    water.rotation.x=-Math.PI/2; water.position.set(cx,0.06,cz); sc.add(water);
+    for(let i=0;i<10;i++){ const a=i/10*6.28; const reed=new THREE.Mesh(new THREE.CylinderGeometry(0.03,0.03,0.8,4),mat(0x4f8f3f)); reed.position.set(cx+Math.cos(a)*3.3,0.4,cz+Math.sin(a)*3.3); sc.add(reed); }
+    this.register(water,'water',{spot:'Danau'},3.6,3.2);
+    this._buildDock(cx,cz-3.5,0);
+  },
+  // small wooden pier (decorative; sits beside a water spot)
+  _buildDock(x,z,ry){
+    const sc=SceneSetup.scene, g=new THREE.Group();
+    const planks=new THREE.Mesh(new THREE.BoxGeometry(1.2,0.12,2.4),mat(0xb98a55)); planks.position.y=0.18; g.add(planks);
+    [[-0.5,1],[0.5,1],[-0.5,-1],[0.5,-1]].forEach(([px,pz])=>{const p=new THREE.Mesh(new THREE.CylinderGeometry(0.07,0.07,0.5,6),mat(0x8a6034));p.position.set(px,-0.05,pz);g.add(p);});
+    g.position.set(x,0,z); g.rotation.y=ry; g.traverse(o=>{if(o.isMesh)o.castShadow=true;}); sc.add(g);
   },
 
   // drifting sky clouds (uncurved so they stay up in the sky)
@@ -1299,6 +1366,7 @@ const World = {
 /* ====================================================================== */
 const Input = {
   active:false, touchId:null,
+  pinch:{active:false,startDist:0,startZoom:1},
   startX:0, startY:0, startT:0,
   originX:0, originY:0, curX:0, curY:0,
   dir:new THREE.Vector2(0,0),      // normalized camera-relative move (x,z)
@@ -1318,6 +1386,8 @@ const Input = {
     this.el.addEventListener('touchmove',e=>this.onMove(e),{passive:false});
     this.el.addEventListener('touchend',e=>this.onEnd(e),{passive:false});
     this.el.addEventListener('touchcancel',e=>this.onEnd(e),{passive:false});
+    // desktop: wheel to zoom
+    this.el.addEventListener('wheel',e=>{ e.preventDefault(); SceneSetup.setZoom(SceneSetup.zoom - Math.sign(e.deltaY)*0.12); },{passive:false});
     // mouse fallback for desktop testing
     this.el.addEventListener('mousedown',e=>this.onStart(this.fakeTouch(e)),{passive:false});
     window.addEventListener('mousemove',e=>{ if(this.active) this.onMove(this.fakeTouch(e)); });
@@ -1327,6 +1397,24 @@ const Input = {
     changedTouches:[{identifier:'mouse',clientX:e.clientX,clientY:e.clientY}],
     touches:[{identifier:'mouse',clientX:e.clientX,clientY:e.clientY}]}; },
 
+  // ---- two-finger pinch zoom (cancels any active joystick) ----
+  startPinch(e){
+    e.preventDefault();
+    this.pinch.active=true;
+    this.active=false; this.touchId=null; this.isDrag=false;
+    this.dir.set(0,0); this.speed=0; this.joy.classList.remove('on'); this.clearHighlight();
+    const a=e.touches[0], b=e.touches[1];
+    this.pinch.startDist=Math.hypot(a.clientX-b.clientX,a.clientY-b.clientY);
+    this.pinch.startZoom=SceneSetup.zoom;
+  },
+  movePinch(e){
+    if(!e.touches||e.touches.length<2) return;
+    e.preventDefault();
+    const a=e.touches[0], b=e.touches[1];
+    const d=Math.hypot(a.clientX-b.clientX,a.clientY-b.clientY);
+    SceneSetup.setZoom(this.pinch.startZoom*(d/Math.max(1,this.pinch.startDist)));
+  },
+
   // ignore touches that begin on DOM HUD elements
   onHUD(x,y){
     const el=document.elementFromPoint(x,y);
@@ -1334,6 +1422,7 @@ const Input = {
   },
 
   onStart(e){
+    if(e.touches && e.touches.length>=2){ this.startPinch(e); return; }  // two fingers = zoom
     if(this.active) return;                    // single-touch lock
     const t=e.changedTouches[0];
     if(this.onHUD(t.clientX,t.clientY)) return; // HUD handles its own taps
@@ -1350,6 +1439,7 @@ const Input = {
   },
 
   onMove(e){
+    if(this.pinch.active){ this.movePinch(e); return; }
     if(!this.active) return;
     const t=this.findTouch(e); if(!t) return;
     e.preventDefault();
@@ -1366,6 +1456,7 @@ const Input = {
   },
 
   onEnd(e){
+    if(this.pinch.active){ if(e.preventDefault)e.preventDefault(); if(!e.touches||e.touches.length<2) this.pinch.active=false; return; }
     const t=this.findTouch(e); if(!t) return;
     e.preventDefault();
     const dx=this.curX-this.startX, dy=this.curY-this.startY;
@@ -1455,8 +1546,8 @@ const Inv={
   remove(id,n=1){ if((GS.data.inventory[id]||0)<n) return false; GS.data.inventory[id]-=n; if(GS.data.inventory[id]<=0) delete GS.data.inventory[id]; UI.renderInventory(); SaveManager.request(); return true; },
   has(id,n=1){ return (GS.data.inventory[id]||0)>=n; },
   count(id){ return GS.data.inventory[id]||0; },
-  nameOf(id){ return CROPS[id]?.name||PRODUCTS[id]?.name||RECIPES[id]?.name||id; },
-  emojiOf(id){ return CROPS[id]?.emoji||PRODUCTS[id]?.emoji||RECIPES[id]?.emoji||(id.startsWith('benih_')?'🌰':'❓'); },
+  nameOf(id){ return CROPS[id]?.name||PRODUCTS[id]?.name||RECIPES[id]?.name||FISH[id]?.name||id; },
+  emojiOf(id){ return CROPS[id]?.emoji||PRODUCTS[id]?.emoji||RECIPES[id]?.emoji||FISH[id]?.emoji||(id.startsWith('benih_')?'🌰':'❓'); },
 };
 
 /* ---- Energy ---- */
@@ -1518,7 +1609,7 @@ const Farming={
       p.watered=true; World.refreshPlot(i);
       UI.popAt('💧 Disiram', World.plotMeshes[i].position);
     }
-    Energy.spend(2); Audio.sfx('water'); UI.haptic(10); Tween.pop(World.plotMeshes[i]);
+    Energy.spend(lvl>=3?1:2); Audio.sfx('water'); UI.haptic(10); Tween.pop(World.plotMeshes[i]);
     UI.tutorialStep('harvest'); SaveManager.request();
   },
   harvest(i){
@@ -1667,33 +1758,140 @@ const Cooking={
   }
 };
 
+/* ---- Fishing: cast -> wait for bite -> "reel" tap-in-zone mini-game ----
+   The mini-game runs as a DOM overlay (its own rAF) so it never conflicts
+   with the world's one-finger touch input. Cozy: failing just lets the fish
+   escape with no penalty. Rod upgrades make the green zone wider & marker
+   slower, and tilt the catch table toward rarer fish / less junk. */
+const Fishing={
+  busy:false, raf:null, state:null, _biteTimer:null,
+  start(spotName){
+    if(this.busy) return;
+    this.busy=true; Energy.spend(2);
+    UI.toast('🎣 Melempar kail di '+(spotName||'air')+'… tunggu sambaran!');
+    Audio.sfx('water');
+    const wait=Util.rand(1.6,4.2);                 // random time until a bite
+    this._biteTimer=setTimeout(()=>this.bite(spotName), wait*1000);
+  },
+  bite(spotName){
+    if(!this.busy) return;
+    Audio.sfx('pop'); UI.haptic(15);
+    const rod=GS.data.tools.rod||1;
+    const zoneW=[0,0.20,0.28,0.38][rod]||0.20;     // wider catch zone at higher rod
+    const speed=[0,0.85,0.72,0.58][rod]||0.85;     // slower marker at higher rod
+    this.state={ prog:25, marker:0.5, dir:1, speed, zoneW,
+      zone:Util.rand(0.08,0.92-zoneW), time:13, last:performance.now(), spot:spotName };
+    this.openUI(); this.loop();
+  },
+  openUI(){
+    const body=Util.$('#fishing-body');
+    body.innerHTML=
+      '<h2>🎣 Strike! Tarik ikannya!</h2>'+
+      '<div class="fish-meta">Tap <b>TARIK</b> saat penanda merah ada di zona hijau.</div>'+
+      '<div class="fish-track"><div class="fish-zone" id="fish-zone"></div><div class="fish-marker" id="fish-marker"></div></div>'+
+      '<div class="fish-bar"><div class="fish-fill" id="fish-fill"></div></div>'+
+      '<div class="fish-timer"><div id="fish-time"></div></div>'+
+      '<button class="btn" id="fish-tap">TARIK 🎣</button>';
+    Util.$('#modal-fishing').classList.add('on');
+    // onclick (not addEventListener) so handlers never accumulate across casts
+    Util.$('#fish-tap').onclick=()=>this.pull();
+    body.onclick=(e)=>{ if(this.state && (!e.target||e.target.id!=='fish-tap')) this.pull(); };
+    this.render();
+  },
+  pull(){
+    const s=this.state; if(!s) return;
+    const inZone = s.marker>=s.zone && s.marker<=s.zone+s.zoneW;
+    if(inZone){
+      const center=s.zone+s.zoneW/2, acc=1-Math.abs(s.marker-center)/(s.zoneW/2);
+      s.prog+= 14 + acc*10;                         // center hits give a bonus
+      Audio.sfx('pop'); UI.haptic(8);
+      const tr=Util.$('.fish-track'); if(tr){ tr.classList.remove('fish-flash'); void tr.offsetWidth; tr.classList.add('fish-flash'); }
+      s.zone=Util.rand(0.06,0.94-s.zoneW);          // relocate zone for next pull
+    } else { s.prog-=10; Audio.sfx('step'); }
+    s.prog=Util.clamp(s.prog,0,100);
+    if(s.prog>=100) this.win();
+  },
+  loop(){
+    const s=this.state; if(!s) return;
+    const now=performance.now(), dt=Math.min((now-s.last)/1000,0.05); s.last=now;
+    s.marker+=s.dir*s.speed*dt;
+    if(s.marker>1){ s.marker=1; s.dir=-1; } if(s.marker<0){ s.marker=0; s.dir=1; }
+    s.time-=dt; this.render();
+    if(s.time<=0){ this.escape(); return; }
+    this.raf=requestAnimationFrame(()=>this.loop());
+  },
+  render(){
+    const s=this.state; if(!s) return;
+    const zone=Util.$('#fish-zone'); if(!zone) return;
+    zone.style.left=(s.zone*100)+'%'; zone.style.width=(s.zoneW*100)+'%';
+    Util.$('#fish-marker').style.left='calc('+(s.marker*100)+'% - 4px)';
+    Util.$('#fish-fill').style.width=s.prog+'%';
+    Util.$('#fish-time').style.width=Util.clamp(s.time/13*100,0,100)+'%';
+  },
+  win(){
+    const fish=this.pickFish(); this._finish();
+    Inv.add(fish,1);
+    if(!FISH[fish].junk){ GS.data.stats.fishCaught++; Collection.markFish(fish); }
+    UI.popAt('+1 '+FISH[fish].name+' '+FISH[fish].emoji, World.player.position,'#aee2ff');
+    UI.toast((FISH[fish].rarity>=4?'🎉 Tangkapan langka! ':'')+'Dapat '+FISH[fish].name+' '+FISH[fish].emoji);
+    Audio.sfx(FISH[fish].rarity>=4?'milestone':'done'); UI.haptic(15);
+    Particles_burst(new THREE.Vector3(World.player.position.x,1.4,World.player.position.z),0xaee2ff,7);
+    if(FISH[fish].rarity>=4) UI.confetti();
+    SaveManager.request();
+  },
+  escape(){ this._finish(); UI.toast('🐟💨 Ikannya lolos… santai, coba lagi ya!'); Audio.sfx('step'); },
+  _finish(){
+    if(this.raf) cancelAnimationFrame(this.raf); this.raf=null;
+    clearTimeout(this._biteTimer);
+    this.state=null; this.busy=false;
+    Util.$('#fishing-body').onclick=null;
+    Util.$('#modal-fishing').classList.remove('on');
+  },
+  // weighted random; higher rod -> less junk, more rare
+  pickFish(){
+    const rod=GS.data.tools.rod||1;
+    const entries=Object.entries(FISH).map(([k,f])=>{
+      let w=f.weight;
+      if(f.junk) w*=(rod>=2?0.5:1)*(rod>=3?0.5:1);
+      if(f.rarity>=4) w*=(1+(rod-1)*0.8);
+      return [k,w];
+    });
+    const total=entries.reduce((a,[,w])=>a+w,0); let r=Math.random()*total;
+    for(const [k,w] of entries){ r-=w; if(r<=0) return k; }
+    return 'ikan_kecil';
+  }
+};
+
 /* ---- Economy: shop, shipping bin, customers ---- */
 const Economy={
   spend(n){ GS.data.coins=Math.max(0,GS.data.coins-n); UI.updateCoins(); },
   earn(n){ GS.data.coins+=n; UI.updateCoins(); Audio.sfx('coin'); },
-  // souvenir shop: sell raw goods instantly (lower price) + buy tool upgrade
+  // souvenir shop: sell raw goods instantly (lower price) + open upgrades
+  _price(id){ return CROPS[id]?.sell||PRODUCTS[id]?.sell||FISH[id]?.sell||5; },
   openShop(){
-    const sellable=Object.keys(GS.data.inventory).filter(id=>CROPS[id]||PRODUCTS[id]);
+    const sellable=Object.keys(GS.data.inventory).filter(id=>CROPS[id]||PRODUCTS[id]||FISH[id]);
     const opts=[];
     sellable.forEach(id=>{
-      const price=(CROPS[id]?.sell||PRODUCTS[id]?.sell||5);
-      const instant=Math.round(price*0.8);
+      const instant=Math.round(this._price(id)*0.8);
       opts.push({id, icon:Inv.emojiOf(id), title:'Jual '+Inv.nameOf(id),
         meta:'x'+Inv.count(id)+' · 🪙'+instant+' /pcs', onPick:()=>this.sell(id,instant)});
     });
-    // tool upgrade (coin sink, ala SoS)
-    if(GS.data.tools.watering<2){
-      opts.push({id:'upg', icon:'🪣', title:'Gembor Lv2 (siram 3×3)', meta:'🪙120',
-        disabled:GS.data.coins<120, onPick:()=>this.buyWateringUpgrade()});
-    }
-    // land expansion
-    if(!GS.data.plotsExpanded){
-      opts.push({id:'land', icon:'🌾', title:'Perluas lahan (+petak)', meta:'🪙200',
-        disabled:GS.data.coins<200, onPick:()=>this.expandLand()});
-    }
-    if(!opts.length){ UI.toast('Tidak ada yang bisa dijual 🛒'); return; }
+    opts.push({id:'upg', icon:'🔧', title:'Upgrade Alat', meta:'lihat →', onPick:()=>this.openUpgrades()});
     UI.choice('Toko Suvenir 🛒', opts);
   },
+  // dedicated upgrade menu — pure coin sinks for convenience, never gate content
+  openUpgrades(){
+    const c=GS.data.coins, opts=[];
+    if(GS.data.tools.watering<2) opts.push({id:'w2',icon:'🪣',title:'Gembor Lv2 (siram 3×3)',meta:'🪙120',disabled:c<120,onPick:()=>this._buy(120,()=>{GS.data.tools.watering=2;UI.toast('Gembor Lv2! Siram 3×3 💧');})});
+    else if(GS.data.tools.watering<3) opts.push({id:'w3',icon:'🪣',title:'Gembor Lv3 (lebih hemat tenaga)',meta:'🪙260',disabled:c<260,onPick:()=>this._buy(260,()=>{GS.data.tools.watering=3;UI.toast('Gembor Lv3! 💧✨');})});
+    const rod=GS.data.tools.rod||1;
+    if(rod<3){ const cost=[0,140,300][rod]; opts.push({id:'rod',icon:'🎣',title:'Joran Lv'+(rod+1)+' (zona hijau lebih besar, ikan langka↑)',meta:'🪙'+cost,disabled:c<cost,onPick:()=>this._buy(cost,()=>{GS.data.tools.rod=rod+1;UI.toast('Joran Lv'+(rod+1)+'! Memancing makin gampang 🎣');})}); }
+    if(!GS.data.tools.shoes) opts.push({id:'shoe',icon:'👟',title:'Sepatu Lari (gerak lebih cepat)',meta:'🪙180',disabled:c<180,onPick:()=>this._buy(180,()=>{GS.data.tools.shoes=1;UI.toast('Sepatu Lari! Jalan lebih ngebut 👟');})});
+    if(!GS.data.plotsExpanded) opts.push({id:'land',icon:'🌾',title:'Perluas lahan (+petak)',meta:'🪙200',disabled:c<200,onPick:()=>this.expandLand()});
+    if(!opts.length){ UI.toast('Semua alat sudah maksimal! ✨'); return; }
+    UI.choice('🔧 Upgrade Alat', opts);
+  },
+  _buy(cost,fn){ if(GS.data.coins<cost) return; this.spend(cost); fn(); UI.haptic(15); SaveManager.request(); setTimeout(()=>this.openUpgrades(),140); },
   sell(id,price){
     if(!Inv.has(id)) return;
     Inv.remove(id,1); this.earn(price);
@@ -1715,14 +1913,14 @@ const Economy={
   },
   // shipping bin: deposit raw goods, sold next morning at base price
   openShipping(){
-    const sellable=Object.keys(GS.data.inventory).filter(id=>CROPS[id]||PRODUCTS[id]);
+    const sellable=Object.keys(GS.data.inventory).filter(id=>CROPS[id]||PRODUCTS[id]||FISH[id]);
     if(!sellable.length){
-      const total=Object.entries(GS.data.shippingBin).reduce((s,[id,n])=>s+(CROPS[id]?.sell||PRODUCTS[id]?.sell||5)*n,0);
+      const total=Object.entries(GS.data.shippingBin).reduce((s,[id,n])=>s+this._price(id)*n,0);
       UI.toast(total>0?('Kotak berisi barang senilai ~🪙'+total+' (terjual besok pagi)'):'Kotak kosong 📦');
       return;
     }
     const opts=sellable.map(id=>({id, icon:Inv.emojiOf(id), title:'Kirim '+Inv.nameOf(id),
-      meta:'x'+Inv.count(id)+' · 🪙'+(CROPS[id]?.sell||PRODUCTS[id]?.sell)+' /pcs (besok)',
+      meta:'x'+Inv.count(id)+' · 🪙'+this._price(id)+' /pcs (besok)',
       onPick:()=>this.ship(id)}));
     UI.choice('Kotak Pengiriman 📦', opts);
   },
@@ -1737,7 +1935,7 @@ const Economy={
   resolveShipping(){
     let total=0;
     for(const [id,n] of Object.entries(GS.data.shippingBin)){
-      total+=(CROPS[id]?.sell||PRODUCTS[id]?.sell||5)*n;
+      total+=this._price(id)*n;
     }
     if(total>0){ this.earn(total); GS.data.shippingBin={};
       setTimeout(()=>UI.toast('💰 Kotak pengiriman terjual: +🪙'+total),900); }
@@ -1850,6 +2048,7 @@ const Collection={
   markCrop(k){ if(!GS.data.notebook.crops[k]){GS.data.notebook.crops[k]=true; this.check();} },
   markRecipe(k){ if(!GS.data.notebook.recipes[k]){GS.data.notebook.recipes[k]=true; this.check();} },
   markAnimal(k){ if(!GS.data.notebook.animals[k]){GS.data.notebook.animals[k]=true; this.check();} },
+  markFish(k){ if(!GS.data.notebook.fish[k]){GS.data.notebook.fish[k]=true; this.check();} },
   check(){
     // milestone: all crops collected
     if(Object.keys(CROPS).every(k=>GS.data.notebook.crops[k]) && !GS.data._mileCrops){
@@ -1857,6 +2056,10 @@ const Collection={
     }
     if(Object.keys(RECIPES).every(k=>GS.data.notebook.recipes[k]) && !GS.data._mileRecipes){
       GS.data._mileRecipes=true; this.celebrate('Semua resep dimasak! 👨‍🍳🎉');
+    }
+    const realFish=Object.keys(FISH).filter(k=>!FISH[k].junk);
+    if(realFish.every(k=>GS.data.notebook.fish[k]) && !GS.data._mileFish){
+      GS.data._mileFish=true; this.celebrate('Semua ikan tertangkap! 🎣🎉');
     }
   },
   celebrate(msg){ UI.toast(msg); Audio.sfx('milestone'); UI.confetti(); }
@@ -1881,6 +2084,7 @@ const Interactions={
       case 'bed':      Game.sleep(); break;
       case 'wardrobe': UI.openCreator(); break;
       case 'sign':     UI.openRename(); break;
+      case 'water':    Fishing.start(entry.data.spot); break;
     }
   },
   _removeEntry(entry){
@@ -1905,8 +2109,11 @@ const UI={
 
   init(){
     Util.$('#menu-btn').addEventListener('click',()=>this.openSettings());
-    // close buttons (event delegation)
-    Util.$$('.modal').forEach(m=>m.addEventListener('click',e=>{ if(e.target===m) m.classList.remove('on'); }));
+    // zoom buttons (pinch is handled in InputController)
+    Util.$('#zoom-in').addEventListener('click',()=>SceneSetup.setZoom(SceneSetup.zoom+0.18));
+    Util.$('#zoom-out').addEventListener('click',()=>SceneSetup.setZoom(SceneSetup.zoom-0.18));
+    // close buttons (event delegation); fishing modal closes only when its game ends
+    Util.$$('.modal').forEach(m=>m.addEventListener('click',e=>{ if(e.target===m && m.id!=='modal-fishing') m.classList.remove('on'); }));
   },
 
   /* ---- 3D → screen projection ---- */
@@ -2054,6 +2261,9 @@ const UI={
     html+='</div><div style="font-weight:700;margin-top:10px">🐮 Hewan dirawat</div><div class="grid">';
     [['sapi','🐮'],['ayam','🐔'],['domba','🐑']].forEach(([k,e])=>{ const got=GS.data.notebook.animals[k];
       html+='<div class="cell'+(got?'':' locked')+'"><span class="icon">'+e+'</span>'+(got?'<span class="check">✅</span>':'')+'</div>';});
+    html+='</div><div style="font-weight:700;margin-top:10px">🎣 Ikan tertangkap</div><div class="grid">';
+    Object.keys(FISH).filter(k=>!FISH[k].junk).forEach(k=>{ const got=GS.data.notebook.fish[k];
+      html+='<div class="cell'+(got?'':' locked')+'"><span class="icon">'+FISH[k].emoji+'</span><span class="lbl">'+FISH[k].name+'</span>'+(got?'<span class="check">✅</span>':'')+'</div>';});
     html+='</div>';
     body.innerHTML=html;
     body.querySelector('.close').addEventListener('click',()=>Util.$('#modal-notebook').classList.remove('on'));
@@ -2257,11 +2467,11 @@ const Game={
       if(dist<=Input.autoWalk.entry.range){
         Interactions.run(Input.autoWalk.entry); Input.autoWalk=null;
       }else{
-        to.normalize(); dir.copy(to); speed=4.2*Energy.factor();
+        to.normalize(); dir.copy(to); speed=4.2*Energy.factor()*(GS.data.tools.shoes?1.35:1);
       }
     } else if(moving){
       dir.set(Input.dir.x,0,Input.dir.y);
-      speed=4.6*Input.speed*Energy.factor();
+      speed=4.6*Input.speed*Energy.factor()*(GS.data.tools.shoes?1.35:1);
     }
 
     if(speed>0){
