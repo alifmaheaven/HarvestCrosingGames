@@ -1,0 +1,14 @@
+# OS / editor
+.DS_Store
+Thumbs.db
+*.swp
+.idea/
+.vscode/
+
+# Node (only if tooling is added later)
+node_modules/
+npm-debug.log*
+yarn-error.log*
+
+# Build output (none currently — game is a single static file)
+dist/
