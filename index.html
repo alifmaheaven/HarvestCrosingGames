@@ -253,6 +253,9 @@ html,body{
 #photo-exit{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(var(--safe-b) + 16px);
   display:none;z-index:70;padding:12px 20px;border:none;border-radius:16px;
   background:rgba(74,59,42,.9);color:#fff6da;font-weight:700;font-size:14px;}
+#house-exit{position:fixed;right:calc(var(--safe-r) + 12px);top:calc(var(--safe-t) + 120px);
+  display:none;z-index:70;padding:11px 16px;border:none;border-radius:14px;
+  background:rgba(74,59,42,.92);color:#fff6da;font-weight:700;font-size:13px;box-shadow:0 3px 0 rgba(0,0,0,.2);}
 
 /* object/building name labels (transparent bg, readable text) */
 #labels{position:fixed;inset:0;pointer-events:none;}
@@ -282,6 +285,7 @@ html,body{
   <div id="labels"></div>
 </div>
 <button id="photo-exit">📷 Keluar Mode Foto</button>
+<button id="house-exit">🚪 Keluar Rumah</button>
 
 <!-- joystick -->
 <div id="joy"><div class="ring"></div><div class="knob"></div></div>
@@ -603,6 +607,8 @@ function defaultSave(){
     recipesUnlocked:{salad:true,smoothie:true,omelet:false,steak:false},
     friendship:{sari:0,tono:0,mira:0},
     greetedToday:[],
+    giftedToday:[],                      // NPCs gifted today
+    reputation:0,                        // café reputation
     notebook:{crops:{},recipes:{},animals:{},fish:{},bugs:{},fossils:{}},  // collection checklists
     customize:{hair:0,outfit:0},
     casualMode:false,
@@ -610,6 +616,7 @@ function defaultSave(){
     shippingBin:{},                      // {id:qty} sold next morning
     decorInv:{},                         // owned decoration items {type:qty}
     placedDecor:[],                      // placed furniture [{type,x,z,ry}]
+    placedDecorIn:[],                    // furniture placed inside the house
     shopDeal:{day:0,id:null},            // daily rotating shop deal
     pet:{has:true, type:'dog', name:null, affection:0},  // companion pet
     museum:{fish:{},bugs:{},fossils:{}}, // donated specimens
@@ -647,6 +654,9 @@ const SaveManager = {
       data.notebook=Object.assign({crops:{},recipes:{},animals:{},fish:{},bugs:{},fossils:{}}, data.notebook);
       data.decorInv=data.decorInv||{};
       data.placedDecor=data.placedDecor||[];
+      data.placedDecorIn=data.placedDecorIn||[];
+      data.giftedToday=data.giftedToday||[];
+      data.reputation=data.reputation||0;
       // migrate legacy single-animal save → multi-animal ranch
       if(!data.ranch){
         const lg=data.animals||{};
@@ -854,6 +864,7 @@ const DayCycle = {
     GS.data.day++;
     GS.data.timeOfDay=0.24;
     GS.data.greetedToday=[];
+    GS.data.giftedToday=[];
     // season rollover
     const idx=Math.floor((GS.data.day-1)/SEASON_DAYS)%SEASONS.length;
     GS.data.season=SEASONS[idx];
@@ -1305,7 +1316,8 @@ const World = {
     this.register(bin,'shipping',{},1.8,1.6); this.addLabel('📦 Kotak Kirim', bin, 1.3);
 
     // ---- house + bed ----
-    const house=Builders.house(); house.position.set(-6,0,8); sc.add(house); this.addLabel('🏠 Rumah', house, 3.6);
+    const house=Builders.house(); house.position.set(-6,0,8); sc.add(house); this.addLabel('🏠 Rumah (masuk)', house, 3.6);
+    this.register(house,'house',{},2.6,3.0);
     const bed=Builders.bed(); bed.position.set(-6,0,11.5); sc.add(bed); this.bedMesh=bed;
     this.register(bed,'bed',{},2.0,2.0); this.addLabel('🛏️ Kasur (tidur)', bed, 1.2);
 
@@ -1866,10 +1878,11 @@ const Input = {
   },
   // raycast the ground plane → world point (logical flat coords)
   groundPoint(x,y){
-    if(!World.land) return null;
+    const target = Decor.editing ? Decor.floor() : World.land;
+    if(!target) return null;
     const ndc=new THREE.Vector2((x/window.innerWidth)*2-1, -(y/window.innerHeight)*2+1);
     World.raycaster.setFromCamera(ndc,SceneSetup.camera);
-    const hit=World.raycaster.intersectObject(World.land,false)[0];
+    const hit=World.raycaster.intersectObject(target,false)[0];
     return hit?hit.point:null;
   }
 };
@@ -2374,42 +2387,63 @@ const Economy={
 };
 
 
-/* ---- NPC / Villager social system ---- */
+/* ---- NPC / Villager social system (gifts, favorites, birthdays) ---- */
 const NPC_DATA={
-  sari:{name:'Bibi Sari', lines:['Benih segar baru datang! 🌱','Tanahmu subur sekali, sayang.','Coba tanam stroberi musim semi ini ya.']},
-  tono:{name:'Pak Tono', lines:['Aromanya sedap dari sini~ 🍳','Kapan restoranmu buka lagi?','Aku pelanggan setiamu, hehe.']},
-  mira:{name:'Mira', lines:['Aku lagi koleksi resep, lho! 📖','Pernah lihat kunang-kunang malam ini?','Kebunmu makin cantik tiap hari ✨']},
+  sari:{name:'Bibi Sari', lines:['Benih segar baru datang! 🌱','Tanahmu subur sekali, sayang.','Coba tanam stroberi musim semi ini ya.'],
+        fav:['stroberi','tomat','wortel','jagung'], likeCat:'crop', bday:{season:'Semi',day:2}},
+  tono:{name:'Pak Tono', lines:['Aromanya sedap dari sini~ 🍳','Kapan restoranmu buka lagi?','Aku pelanggan setiamu, hehe.'],
+        fav:['salad','omelet','steak','smoothie'], likeCat:'dish', bday:{season:'Panas',day:1}},
+  mira:{name:'Mira', lines:['Aku lagi koleksi resep, lho! 📖','Pernah lihat kunang-kunang malam ini?','Kebunmu makin cantik tiap hari ✨'],
+        fav:['kristal','hiu','kupu','permata'], likeCat:'collect', bday:{season:'Gugur',day:3}},
 };
 const NPCSys={
   request:null,   // {npc, id, qty} active small request
+  seasonDay(){ return ((GS.data.day-1)%SEASON_DAYS)+1; },
+  isBday(key){ const b=NPC_DATA[key].bday; return b.season===GS.data.season && b.day===this.seasonDay(); },
+  matchCat(cat,b){ if(cat==='crop') return !!CROPS[b]; if(cat==='dish') return !!RECIPES[b];
+    if(cat==='collect') return !!(FISH[b]||BUGS[b]||FOSSILS[b]||MATS[b]); return false; },
   interact(key){
-    const d=NPC_DATA[key];
-    // greet bonus once per day
-    let extra='';
-    if(!GS.data.greetedToday.includes(key)){
-      GS.data.greetedToday.push(key);
-      this.addFriend(key,0.5); extra=' (+❤ sapaan)';
+    const d=NPC_DATA[key], opts=[];
+    if(this.request && this.request.npc===key){
+      const r=this.request, ok=Inv.has(r.id,r.qty);
+      opts.push({id:'fulfil',icon:'✅',title:'Penuhi: '+r.qty+' '+Inv.nameOf(r.id),meta:ok?'serahkan →':'belum cukup',disabled:!ok,onPick:()=>this.fulfil(key)});
     }
-    // active request fulfilment?
-    if(this.request && this.request.npc===key && Inv.has(this.request.id,this.request.qty)){
-      this.fulfil(key); return;
-    }
-    // chance to give a small request
-    if(!this.request && Math.random()<0.4){
-      this.giveRequest(key); return;
-    }
+    opts.push({id:'chat',icon:'💬',title:'Ngobrol',meta:this.isBday(key)?'🎂 ultah!':'',onPick:()=>this.chat(key)});
+    opts.push({id:'gift',icon:'🎁',title:'Beri hadiah',meta:GS.data.giftedToday.includes(key)?'sudah hari ini':('❤'+Math.round(GS.data.friendship[key])),disabled:GS.data.giftedToday.includes(key),onPick:()=>this.giftPicker(key)});
+    UI.choice(d.name+(this.isBday(key)?' 🎂':'')+' · ❤'+Math.round(GS.data.friendship[key]), opts);
+  },
+  chat(key){
+    const d=NPC_DATA[key]; let extra='';
+    if(!GS.data.greetedToday.includes(key)){ GS.data.greetedToday.push(key); this.addFriend(key,0.5); extra=' (+❤)'; }
+    if(this.isBday(key)) extra=' 🎂 Hari ini ulang tahunku, lho!';
+    else if(!this.request && Math.random()<0.4){ this.giveRequest(key); return; }
     UI.bubble(World.npcObjs[key], Util.pick(d.lines)+extra);
-    UI.showHearts(World.npcObjs[key], GS.data.friendship[key]);
-    Audio.sfx('pop'); SaveManager.request();
+    UI.showHearts(World.npcObjs[key], GS.data.friendship[key]); Audio.sfx('pop'); SaveManager.request();
+  },
+  giftPicker(key){
+    const items=Object.keys(GS.data.inventory).filter(id=>GS.data.inventory[id]>0);
+    if(!items.length){ UI.toast('Inventarismu kosong 😅'); return; }
+    const opts=items.map(id=>({id,icon:Inv.emojiOf(id),title:Inv.nameOf(id),meta:'x'+Inv.count(id),onPick:()=>this.giveGift(key,id)}));
+    UI.choice('🎁 Beri hadiah ke '+NPC_DATA[key].name, opts);
+  },
+  giveGift(key,id){
+    if(!Inv.has(id)||GS.data.giftedToday.includes(key)) return;
+    Inv.remove(id,1); const d=NPC_DATA[key], b=baseId(id);
+    let amt=0.2, react='Terima kasih 🙂';
+    if(d.fav.includes(b)){ amt=1.0; react='Wah, ini favoritku! 😍'; }
+    else if(this.matchCat(d.likeCat,b)){ amt=0.5; react='Aku suka ini 😊'; }
+    if(this.isBday(key)){ amt*=2; react='Hadiah ulang tahun?! '+react+' 🎂'; }
+    this.addFriend(key,amt); GS.data.giftedToday.push(key);
+    UI.bubble(World.npcObjs[key], react); UI.showHearts(World.npcObjs[key], GS.data.friendship[key]);
+    Audio.sfx('heart'); UI.haptic(12); SaveManager.request();
   },
   giveRequest(key){
-    const id=Util.pick(Object.keys(CROPS));
-    const qty=Util.randInt(1,2);
+    const id=Util.pick(Object.keys(CROPS)), qty=Util.randInt(1,2);
     this.request={npc:key,id,qty};
     UI.bubble(World.npcObjs[key], 'Boleh minta '+qty+' '+CROPS[id].name+' '+CROPS[id].emoji+'? Nanti kukasih bonus 🪙');
   },
   fulfil(key){
-    const r=this.request; Inv.remove(r.id,r.qty);
+    const r=this.request; if(!Inv.has(r.id,r.qty)) return; Inv.remove(r.id,r.qty);
     Economy.earn(30); this.addFriend(key,1);
     UI.bubble(World.npcObjs[key],'Wah terima kasih! Ini buatmu 🪙💛');
     UI.showHearts(World.npcObjs[key], GS.data.friendship[key]);
@@ -2419,13 +2453,15 @@ const NPCSys={
     const before=GS.data.friendship[key];
     GS.data.friendship[key]=Util.clamp(before+n,0,5);
     const after=GS.data.friendship[key];
-    // friendship-milestone gifts (hati 3 & 5)
     [3,5].forEach(th=>{ if(before<th && after>=th && (GS.data.friendGifts[key]||0)<th){
       GS.data.friendGifts[key]=th; const c=th*25; Economy.earn(c);
-      UI.toast('💌 '+NPC_DATA[key].name+' mengirimimu hadiah! +🪙'+c); Audio.sfx('coin'); SaveManager.request();
+      UI.toast('💌 '+NPC_DATA[key].name+' mengirimimu surat berisi 🪙'+c+'!'); Audio.sfx('coin'); SaveManager.request();
     }});
   },
-  // rare special visitor event (~1 in 4 days) — cheap: tweak Mira's offer
+  // birthday announcement on a new day
+  birthdayCheck(){
+    Object.keys(NPC_DATA).forEach(key=>{ if(this.isBday(key)) setTimeout(()=>UI.toast('🎂 Hari ini ulang tahun '+NPC_DATA[key].name+'! Beri hadiah favoritnya ya.'),1800); });
+  },
   maybeEvent(){
     if(GS.data.day%4===0){
       setTimeout(()=>{
@@ -2436,38 +2472,48 @@ const NPCSys={
   }
 };
 
-/* ---- Customers (use NPC look; spawn at tables) ---- */
+/* ---- Customers / café orders (reputation + patience + VIPs) ---- */
 const Customers={
   timer:0,
   tick(dt){
     this.timer+=dt;
-    if(this.timer>10){ this.timer=0; this.spawn(); }
+    const interval=Math.max(6, 11 - GS.data.reputation*0.04);  // higher rep → more customers
+    if(this.timer>interval){ this.timer=0; this.spawn(); }
+    // patience countdown — leaves politely if not served (no penalty)
+    World.customers.forEach(c=>{ if(c.userData.served||c.userData.leaving) return;
+      c.userData.patience-=dt;
+      if(c.userData.patience<=0){ c.userData.leaving=true; UI.bubble(c,'Yah, lain kali ya 😶'); this.leave(c,500); }
+    });
   },
   spawn(){
     const free=World.tables.find(t=>!t.occupied);
     if(!free) return;
     const c=Builders.villager({hair:Util.pick(HAIR_COLORS),outfit:Util.pick(OUTFIT_COLORS)});
     c.position.set(free.obj.position.x, 0, free.obj.position.z+0.9);
-    c.userData.want=Util.pick(Object.keys(RECIPES).filter(k=>GS.data.recipesUnlocked[k]));
-    c.userData.patience=30;
+    const unlocked=Object.keys(RECIPES).filter(k=>GS.data.recipesUnlocked[k]);
+    c.userData.want=Util.pick(unlocked);
+    c.userData.patience=Util.rand(35,55);
+    c.userData.vip=Math.random()<0.15;
     SceneSetup.scene.add(c);
     free.occupied=c; c.userData.table=free;
-    const entry=World.register(c,'customer',{ref:c},2.2,1.6);
-    c.userData.entry=entry;
-    UI.bubble(c, 'Ingin '+RECIPES[c.userData.want].emoji+' '+RECIPES[c.userData.want].name);
+    c.userData.entry=World.register(c,'customer',{ref:c},2.2,1.6);
+    UI.bubble(c, (c.userData.vip?'⭐ ':'')+'Ingin '+RECIPES[c.userData.want].emoji+' '+RECIPES[c.userData.want].name);
     World.customers.push(c);
   },
   serve(c){
     const want=c.userData.want;
     if(!Inv.has(want)){ UI.bubble(c,'Belum punya '+RECIPES[want].name+' 😅'); return; }
-    Inv.remove(want,1);
+    Inv.remove(want,1); c.userData.served=true;
     const r=RECIPES[want];
-    // varied reaction + chance tip
-    const happy=Math.random()<0.7;
-    let pay=r.sell + (happy?Math.round(r.sell*0.2):0);
+    const repBonus=1+GS.data.reputation*0.03, vip=c.userData.vip?1.5:1;
+    const happy=Math.random()<0.75;
+    const pay=Math.round((r.sell + (happy?r.sell*0.25:0))*repBonus*vip);
     Economy.earn(pay);
+    const before=Math.floor(GS.data.reputation/10);
+    GS.data.reputation=Math.min(100,GS.data.reputation+ (c.userData.vip?2:1));
+    if(Math.floor(GS.data.reputation/10)>before) UI.toast('⭐ Reputasi restoran naik! Pelanggan makin ramai.');
     Quests.progress('sold'); Stats.inc('sold');
-    UI.bubble(c, happy?('Enak sekali! 😍 +🪙'+pay):('Terima kasih 🙂 +🪙'+pay));
+    UI.bubble(c, (c.userData.vip?'⭐ ':'')+(happy?'Enak sekali! 😍 +🪙'+pay:'Terima kasih 🙂 +🪙'+pay));
     UI.popAt('+'+pay+' 🪙', c.position,'#ffe08a');
     UI.haptic(14); Particles_burst(new THREE.Vector3(c.position.x,1.4,c.position.z),0xffd84d,5);
     this.leave(c,1200);
@@ -2475,7 +2521,6 @@ const Customers={
   leave(c,delay=0){
     setTimeout(()=>{
       if(c.userData.table) c.userData.table.occupied=null;
-      // remove from interactables
       const i=World.interactables.findIndex(e=>e.root===c);
       if(i>=0){ SceneSetup.scene.remove(World.interactables[i].hit); World.interactables.splice(i,1); }
       SceneSetup.scene.remove(c);
@@ -2660,27 +2705,33 @@ const Dig={
   clear(){ this.spots.slice().forEach(m=>this.remove(m)); }
 };
 
-/* ---- Decor: buy & place furniture; "edit mode" places/picks-up on ground tap ---- */
+/* ---- Decor: buy & place furniture; edit mode places/picks-up on ground tap.
+       Context-aware: 'out' = island, 'in' = inside the house. ---- */
 const Decor={
-  group:null, editing:false, selected:null,
-  init(){ this.group=new THREE.Group(); SceneSetup.scene.add(this.group); this.rebuild(); },
+  groupOut:null, groupIn:null, editing:false, selected:null, ctx:'out',
+  init(){ this.groupOut=new THREE.Group(); this.groupIn=new THREE.Group();
+    SceneSetup.scene.add(this.groupOut); SceneSetup.scene.add(this.groupIn); this.rebuild(); },
+  grp(){ return this.ctx==='in'?this.groupIn:this.groupOut; },
+  arr(){ return this.ctx==='in'?GS.data.placedDecorIn:GS.data.placedDecor; },
+  floor(){ return this.ctx==='in'?World.roomFloor:World.land; },
   rebuild(){
-    if(!this.group) return;
-    while(this.group.children.length) this.group.remove(this.group.children[0]);
-    GS.data.placedDecor.forEach(d=>{ const m=Builders.decor(d.type); m.position.set(d.x,0,d.z); m.rotation.y=d.ry||0; m.userData.decorRef=d; this.group.add(m); });
+    [['out',this.groupOut,GS.data.placedDecor],['in',this.groupIn,GS.data.placedDecorIn]].forEach(([ctx,grp,arr])=>{
+      if(!grp) return; while(grp.children.length) grp.remove(grp.children[0]);
+      (arr||[]).forEach(d=>{ const m=Builders.decor(d.type); m.position.set(d.x,0,d.z); m.rotation.y=d.ry||0; m.userData.decorRef=d; grp.add(m); });
+    });
   },
   openShopMenu(){
     const opts=Object.keys(DECOR).filter(t=>!DECOR[t].craftOnly).map(t=>({id:t,icon:DECOR[t].emoji,title:'Beli '+DECOR[t].name,
       meta:'🪙'+DECOR[t].cost+(GS.data.decorInv[t]?(' · punya '+GS.data.decorInv[t]):''),
       disabled:GS.data.coins<DECOR[t].cost,onPick:()=>this.buy(t)}));
-    opts.push({id:'place',icon:'✋',title:'Mode Tata (letakkan / ambil)',meta:'→',onPick:()=>this.enterEdit()});
+    opts.push({id:'place',icon:'✋',title:'Mode Tata pulau (letakkan / ambil)',meta:'→',onPick:()=>this.enterEdit('out')});
     UI.choice('🪑 Toko Furnitur', opts);
   },
   buy(t){ if(GS.data.coins<DECOR[t].cost) return; Economy.spend(DECOR[t].cost);
     GS.data.decorInv[t]=(GS.data.decorInv[t]||0)+1; UI.toast('Beli '+DECOR[t].name+' '+DECOR[t].emoji); UI.haptic(12);
     SaveManager.request(); setTimeout(()=>this.openShopMenu(),140); },
-  enterEdit(){ this.editing=true; this.selected=Object.keys(GS.data.decorInv).find(k=>GS.data.decorInv[k]>0)||null;
-    UI.showDecorBar(); UI.toast('Mode Tata: tap tanah untuk meletakkan, tap furnitur untuk ambil.'); },
+  enterEdit(ctx){ this.ctx=ctx||'out'; this.editing=true; this.selected=Object.keys(GS.data.decorInv).find(k=>GS.data.decorInv[k]>0)||null;
+    UI.showDecorBar(); UI.toast('Mode Tata: tap '+(this.ctx==='in'?'lantai':'tanah')+' untuk meletakkan, tap furnitur untuk ambil.'); },
   exitEdit(){ this.editing=false; UI.hideDecorBar(); SaveManager.request(); },
   select(t){ this.selected=t; UI.showDecorBar(); },
   placeAt(x,z){
@@ -2688,19 +2739,45 @@ const Decor={
     if(!t||!(GS.data.decorInv[t]>0)){ UI.toast('Pilih/beli furnitur dulu 🪑'); return; }
     GS.data.decorInv[t]--;
     const d={type:t,x:+x.toFixed(2),z:+z.toFixed(2),ry:Util.rand(0,6.28)};
-    GS.data.placedDecor.push(d);
-    const m=Builders.decor(t); m.position.set(d.x,0,d.z); m.rotation.y=d.ry; m.userData.decorRef=d; this.group.add(m);
+    this.arr().push(d);
+    const m=Builders.decor(t); m.position.set(d.x,0,d.z); m.rotation.y=d.ry; m.userData.decorRef=d; this.grp().add(m);
     Audio.sfx('plant'); UI.haptic(10); Particles_burst(new THREE.Vector3(d.x,0.4,d.z),0x9fd86f,4);
     UI.showDecorBar(); SaveManager.request();
   },
   pickupNear(x,z){
-    let best=null,bd=1.3;
-    this.group.children.forEach(m=>{ const dd=Math.hypot(m.position.x-x,m.position.z-z); if(dd<bd){bd=dd;best=m;} });
+    let best=null,bd=1.3; const grp=this.grp(), arr=this.arr();
+    grp.children.forEach(m=>{ const dd=Math.hypot(m.position.x-x,m.position.z-z); if(dd<bd){bd=dd;best=m;} });
     if(!best) return false;
     const d=best.userData.decorRef; GS.data.decorInv[d.type]=(GS.data.decorInv[d.type]||0)+1;
-    const idx=GS.data.placedDecor.indexOf(d); if(idx>=0) GS.data.placedDecor.splice(idx,1);
-    this.group.remove(best); Audio.sfx('pop'); UI.haptic(8); UI.popAt('📦 diambil', new THREE.Vector3(x,0.4,z));
+    const idx=arr.indexOf(d); if(idx>=0) arr.splice(idx,1);
+    grp.remove(best); Audio.sfx('pop'); UI.haptic(8); UI.popAt('📦 diambil', new THREE.Vector3(x,0.4,z));
     UI.showDecorBar(); SaveManager.request(); return true;
+  }
+};
+
+/* ---- Home interior: enter the house to decorate a private room ---- */
+const Home={
+  built:false, inside:false, savedPos:null, origin:new THREE.Vector3(120,0,120),
+  build(){ if(this.built) return; this.built=true; const sc=SceneSetup.scene, o=this.origin;
+    const floor=new THREE.Mesh(new THREE.PlaneGeometry(10,10,12,12),mat(0xdcc39a)); floor.rotation.x=-Math.PI/2; floor.position.set(o.x,0.02,o.z); floor.receiveShadow=true; sc.add(floor); World.roomFloor=floor;
+    const wall=mat(0xf3e6c8);
+    const mk=(w,h,d,x,z)=>{const m=new THREE.Mesh(new THREE.BoxGeometry(w,h,d),wall);m.position.set(o.x+x,h/2,o.z+z);sc.add(m);};
+    mk(10.4,3,0.3,0,-5); mk(10.4,1.2,0.3,0,5); mk(0.3,3,10,-5,0); mk(0.3,3,10,5,0);
+    const rug=new THREE.Mesh(new THREE.CircleGeometry(2.2,20),mat(0xff8fab,{transparent:true,opacity:.75})); rug.rotation.x=-Math.PI/2; rug.position.set(o.x,0.035,o.z); sc.add(rug);
+    const bed=Builders.bed(); bed.position.set(o.x-3.2,0,o.z-3.4); sc.add(bed);
+    const win=new THREE.Mesh(new THREE.BoxGeometry(1.4,1,0.1),mat(0xaee2ff)); win.position.set(o.x,1.6,o.z-4.85); sc.add(win);
+  },
+  enter(){ this.build(); this.inside=true; this.savedPos=World.player.position.clone();
+    const o=this.origin; World.player.position.set(o.x,0,o.z+2);
+    SceneSetup.camTarget.set(o.x,0,o.z+2); Curve.center.value.set(o.x,0,o.z+2);
+    Decor.enterEdit('in'); Util.$('#house-exit').style.display='block';
+    UI.toast('🏠 Di dalam rumah — tata furniturmu! Tap lantai untuk meletakkan.');
+  },
+  exit(){ this.inside=false; Decor.editing=false; Decor.ctx='out'; UI.hideDecorBar();
+    Util.$('#house-exit').style.display='none';
+    if(this.savedPos){ World.player.position.copy(this.savedPos);
+      SceneSetup.camTarget.set(this.savedPos.x,0,this.savedPos.z); Curve.center.value.set(this.savedPos.x,0,this.savedPos.z); }
+    SaveManager.request();
   }
 };
 
@@ -2872,6 +2949,7 @@ const Interactions={
       case 'festival': Festivals.open(); break;
       case 'ore':      Mine.mine(entry.data.ref); break;
       case 'workbench':Crafting.open(); break;
+      case 'house':    Home.enter(); break;
       case 'kitchen':  Cooking.open(); break;
       case 'shop':     Economy.openShop(); break;
       case 'shipping': Economy.openShipping(); break;
@@ -2913,6 +2991,7 @@ const UI={
     Util.$('#zoom-out').addEventListener('click',()=>SceneSetup.setZoom(SceneSetup.zoom-0.18));
     Util.$('#photo-btn').addEventListener('click',()=>this.togglePhoto());
     Util.$('#photo-exit').addEventListener('click',()=>this.togglePhoto());
+    Util.$('#house-exit').addEventListener('click',()=>Home.exit());
     // close buttons (event delegation); fishing modal closes only when its game ends
     Util.$$('.modal').forEach(m=>m.addEventListener('click',e=>{ if(e.target===m && m.id!=='modal-fishing') m.classList.remove('on'); }));
   },
@@ -3209,7 +3288,7 @@ const UI={
     if(!items.length){ const d=document.createElement('div'); d.className='db-msg'; d.textContent='Beli furnitur di Toko Furnitur dulu 🪑'; bar.appendChild(d); }
     items.forEach(t=>{ const el=document.createElement('div'); el.className='db-item'+(Decor.selected===t?' sel':'');
       el.innerHTML=DECOR[t].emoji+'<span class="db-q">'+GS.data.decorInv[t]+'</span>'; el.onclick=()=>Decor.select(t); bar.appendChild(el); });
-    const done=document.createElement('button'); done.className='db-done'; done.textContent='Selesai ✅'; done.onclick=()=>Decor.exitEdit(); bar.appendChild(done);
+    const done=document.createElement('button'); done.className='db-done'; done.textContent=Home.inside?'🚪 Keluar Rumah':'Selesai ✅'; done.onclick=()=>{ if(Home.inside) Home.exit(); else Decor.exitEdit(); }; bar.appendChild(done);
   },
   hideDecorBar(){ Util.$('#decor-bar').style.display='none'; },
 
@@ -3325,7 +3404,7 @@ const Game={
     NPCSys.maybeEvent();
     Quests.ensure(); Mailbox.updateFlag();
     Economy.ensureDeal(); Decor.init(); Bugs.init(); Dig.daily(); Mine.daily();
-    Pet.init(); Festivals.refresh();
+    Pet.init(); Festivals.refresh(); NPCSys.birthdayCheck();
     UI.tutorialStart();
 
     GS.ready=true;
@@ -3353,6 +3432,7 @@ const Game={
       Economy.ensureDeal(); Dig.daily();        // new shop deal + fresh dig spots
       Mine.daily();                             // fresh ore nodes
       Festivals.refresh();                      // festival NPC for the new day
+      NPCSys.birthdayCheck();
       SaveManager.save();
       UI.toast('☀️ Hari '+GS.data.day+' · '+GS.data.season+' '+SEASON_EMOJI[GS.data.season]);
       f.style.opacity='0';
@@ -3384,8 +3464,14 @@ const Game={
     if(speed>0){
       World.player.position.addScaledVector(dir,speed*dt);
       // clamp to play area
-      World.player.position.x=Util.clamp(World.player.position.x,-30,30);
-      World.player.position.z=Util.clamp(World.player.position.z,-30,30);
+      // clamp to play area (or to the room bounds while indoors)
+      if(Home.inside){ const o=Home.origin;
+        World.player.position.x=Util.clamp(World.player.position.x,o.x-4.3,o.x+4.3);
+        World.player.position.z=Util.clamp(World.player.position.z,o.z-4.3,o.z+4.3);
+      } else {
+        World.player.position.x=Util.clamp(World.player.position.x,-30,30);
+        World.player.position.z=Util.clamp(World.player.position.z,-30,30);
+      }
       // smooth face direction (slerp-ish via angle lerp)
       const target=Math.atan2(dir.x,dir.z);
       let d=target-this.facing; while(d>Math.PI)d-=Math.PI*2; while(d<-Math.PI)d+=Math.PI*2;

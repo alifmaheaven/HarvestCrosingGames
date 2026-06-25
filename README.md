@@ -43,6 +43,9 @@ Built with **Three.js (WebGL)**, primitive geometry only (no external 3D models)
 - 🎉 **Seasonal festivals** — each season has a festival day with a delivery challenge for coins + an exclusive decoration.
 - ⛏️ **Mine** — a rocky corner with ore nodes (stone/iron/crystal) that respawn daily; sell the materials or use them for crafting.
 - 🔨 **Crafting** — a workbench turns mined materials into placeable decorations (stone lamp, statue, brazier, fountain, crystal display).
+- 💌 **Deeper villagers** — each NPC has favorite gifts, a like-category, and a birthday; give gifts (once/day) to raise friendship faster, with letters and bonuses on special days.
+- 🍳 **Café orders** — customers request specific dishes with patience timers; serving builds **reputation** (more customers, bigger tips) and VIPs pay extra.
+- 🏠 **Home interior** — enter your house to decorate a private room: place/pick-up furniture on the floor, saved separately from the island.
 - 📖 **Collection & progression** — notebook checklist, milestone confetti, land/coop expansion, character customization, and a nameable farm sign.
 - 🔊 **Juice & audio** — Web Audio generated ambient music + layered SFX, squash-stretch tweens, particle bursts, and floating popups.
 - 💾 **Versioned save system** — debounced autosave + save-on-sleep, with a graceful in-memory fallback if `localStorage` is unavailable.
