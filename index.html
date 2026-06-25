@@ -419,6 +419,26 @@ const DECOR = {
   lantern:  {name:'Lentera',       emoji:'🪔', cost:45},
   ball:     {name:'Bola Pantai',   emoji:'🏖️', cost:40},
   signpost: {name:'Papan Lucu',    emoji:'🪧', cost:35},
+  // craft-only decorations (made at the workbench from mined materials)
+  statue:   {name:'Patung Batu',   emoji:'🗿', cost:0, craftOnly:true},
+  fountain: {name:'Air Mancur',    emoji:'⛲', cost:0, craftOnly:true},
+  brazier:  {name:'Tungku Api',    emoji:'🔥', cost:0, craftOnly:true},
+  stonelamp:{name:'Lampu Batu',    emoji:'🏮', cost:0, craftOnly:true},
+  crystal:  {name:'Pajangan Kristal',emoji:'💎',cost:0, craftOnly:true},
+};
+// Mining materials (sellable + used in crafting)
+const MATS = {
+  batu:   {name:'Batu',       emoji:'🪨', sell:4},
+  bijih:  {name:'Bijih Besi', emoji:'🔩', sell:14},
+  kristal:{name:'Kristal',    emoji:'💎', sell:40},
+};
+// Crafting recipes → produce a placeable decoration
+const CRAFT = {
+  stonelamp:{name:'Lampu Batu',     emoji:'🏮', need:{batu:3}},
+  statue:   {name:'Patung Batu',    emoji:'🗿', need:{batu:5}},
+  brazier:  {name:'Tungku Api',     emoji:'🔥', need:{batu:4,bijih:1}},
+  fountain: {name:'Air Mancur',     emoji:'⛲', need:{batu:8,bijih:2}},
+  crystal:  {name:'Pajangan Kristal',emoji:'💎', need:{kristal:2}},
 };
 
 /* ====================================================================== */
@@ -1152,6 +1172,40 @@ const Builders = {
     else if(type==='lantern'){ const s=new THREE.Mesh(new THREE.BoxGeometry(0.3,0.42,0.3),mat(0xff8a3d,{transparent:true,opacity:0.9})); s.position.y=0.25; g.add(s); const base=new THREE.Mesh(new THREE.CylinderGeometry(0.16,0.16,0.1,6),mat(0x5b4636)); base.position.y=0.05; g.add(base); }
     else if(type==='ball'){ const b=new THREE.Mesh(new THREE.SphereGeometry(0.3,12,10),mat(0xff5d5d)); b.position.y=0.3; g.add(b); }
     else if(type==='signpost'){ const p=new THREE.Mesh(new THREE.CylinderGeometry(0.06,0.06,0.9,6),mat(0x8a6034)); p.position.y=0.45; g.add(p); const bd=new THREE.Mesh(new THREE.BoxGeometry(0.7,0.4,0.06),mat(0xb98a55)); bd.position.y=0.95; g.add(bd); }
+    else if(type==='statue'){ const base=new THREE.Mesh(new THREE.BoxGeometry(0.7,0.3,0.7),mat(0x9a9a9a)); base.position.y=0.15; g.add(base); const body=new THREE.Mesh(new THREE.BoxGeometry(0.5,0.8,0.4),mat(0xb0b0b0)); body.position.y=0.7; g.add(body); const head=new THREE.Mesh(new THREE.BoxGeometry(0.4,0.4,0.4),mat(0xc0c0c0)); head.position.y=1.3; g.add(head); }
+    else if(type==='fountain'){ const b=new THREE.Mesh(new THREE.CylinderGeometry(0.8,0.9,0.4,14),mat(0x9a9a9a)); b.position.y=0.2; g.add(b); const w=new THREE.Mesh(new THREE.CylinderGeometry(0.6,0.6,0.1,14),mat(0x5fb6e6,{transparent:true,opacity:0.8})); w.position.y=0.42; g.add(w); const p=new THREE.Mesh(new THREE.CylinderGeometry(0.12,0.12,0.7,8),mat(0xb0b0b0)); p.position.y=0.7; g.add(p); const top=new THREE.Mesh(new THREE.CylinderGeometry(0.35,0.35,0.1,12),mat(0x9a9a9a)); top.position.y=1.0; g.add(top); }
+    else if(type==='brazier'){ const p=new THREE.Mesh(new THREE.CylinderGeometry(0.16,0.2,0.7,8),mat(0x5b4636)); p.position.y=0.35; g.add(p); const bowl=new THREE.Mesh(new THREE.CylinderGeometry(0.34,0.2,0.24,10),mat(0x444444)); bowl.position.y=0.75; g.add(bowl); const fire=new THREE.Mesh(new THREE.ConeGeometry(0.2,0.4,7),mat(0xff7a2b,{emissive:0xff5500,emissiveIntensity:1.2})); fire.position.y=1.0; g.add(fire); }
+    else if(type==='stonelamp'){ const p=new THREE.Mesh(new THREE.CylinderGeometry(0.16,0.2,1.1,7),mat(0x9a9a9a)); p.position.y=0.55; g.add(p); const b=new THREE.Mesh(new THREE.SphereGeometry(0.2,8,8),mat(0xfff3c4,{emissive:0xffcf6b,emissiveIntensity:0.8})); b.position.y=1.25; g.add(b); }
+    else if(type==='crystal'){ const base=new THREE.Mesh(new THREE.CylinderGeometry(0.3,0.36,0.2,8),mat(0x777)); base.position.y=0.1; g.add(base); [[0,0.5,0.5],[0.2,0.4,0.32],[-0.18,0.38,0.3]].forEach(([x,h,s])=>{const c=new THREE.Mesh(new THREE.ConeGeometry(0.12*s/0.4,h,5),mat(0x9b6bd6,{emissive:0x5a2d8a,emissiveIntensity:0.6,transparent:true,opacity:0.92}));c.position.set(x,0.2+h/2,0);g.add(c);}); }
+    return g;
+  },
+  // ore node for the mine (color by kind)
+  oreNode(kind){
+    const g=new THREE.Group();
+    const rockCol = kind==='kristal'?0x6b6b80 : kind==='bijih'?0x8a7a6a : 0x9a9a9a;
+    const rock=new THREE.Mesh(new THREE.DodecahedronGeometry(0.45,0),mat(rockCol)); rock.position.y=0.35; rock.castShadow=true; g.add(rock);
+    const vCol = kind==='kristal'?0xaee2ff : kind==='bijih'?0xd98a4a : 0xcfcfcf;
+    const opts = kind==='kristal'?{emissive:0x4488aa,emissiveIntensity:0.6}:{};
+    for(let i=0;i<3;i++){ const v=new THREE.Mesh(new THREE.OctahedronGeometry(0.1,0),mat(vCol,opts)); const a=i*2.1; v.position.set(Math.cos(a)*0.28,0.4+Math.random()*0.2,Math.sin(a)*0.28); g.add(v); }
+    return g;
+  },
+  // cave entrance backdrop for the mine
+  mineEntrance(){
+    const g=new THREE.Group();
+    const hill=new THREE.Mesh(new THREE.SphereGeometry(2.4,12,8,0,Math.PI*2,0,Math.PI/2),mat(0x7a7a82)); hill.scale.y=0.9; g.add(hill);
+    const arch=new THREE.Mesh(new THREE.CylinderGeometry(0.9,0.9,1.2,12,1,false,0,Math.PI),mat(0x2b2b33)); arch.rotation.z=Math.PI/2; arch.rotation.y=Math.PI/2; arch.position.set(0,0.9,2); g.add(arch);
+    const hole=new THREE.Mesh(new THREE.CircleGeometry(0.85,16),new THREE.MeshBasicMaterial({color:0x14141a})); hole.position.set(0,0.9,2.05); g.add(hole);
+    const beam1=new THREE.Mesh(new THREE.BoxGeometry(0.16,1.8,0.16),mat(0x8a6034)); beam1.position.set(-0.95,0.9,2.1); g.add(beam1);
+    const beam2=beam1.clone(); beam2.position.x=0.95; g.add(beam2);
+    return g;
+  },
+  // crafting workbench
+  workbench(){
+    const g=new THREE.Group();
+    const top=new THREE.Mesh(new THREE.BoxGeometry(1.6,0.18,0.9),mat(0xb98a55)); top.position.y=0.8; top.castShadow=true; g.add(top);
+    [[-0.7,-0.35],[0.7,-0.35],[-0.7,0.35],[0.7,0.35]].forEach(([x,z])=>{const l=new THREE.Mesh(new THREE.BoxGeometry(0.12,0.8,0.12),mat(0x8a6034));l.position.set(x,0.4,z);g.add(l);});
+    const vise=new THREE.Mesh(new THREE.BoxGeometry(0.3,0.2,0.3),mat(0x666)); vise.position.set(0.5,0.98,0); g.add(vise);
+    const saw=new THREE.Mesh(new THREE.BoxGeometry(0.5,0.04,0.16),mat(0xcccccc)); saw.position.set(-0.4,0.92,0.1); saw.rotation.z=0.3; g.add(saw);
     return g;
   },
   signboard(){
@@ -1268,6 +1322,11 @@ const World = {
     // ---- museum (donate fish/bugs/fossils) ----
     const museum=Builders.museum(); museum.position.set(14,0,10); sc.add(museum);
     this.register(museum,'museum',{},2.8,3.4); this.addLabel('🏛️ Museum', museum, 3.2);
+
+    // ---- mine (rocky corner) + crafting workbench ----
+    const mineE=Builders.mineEntrance(); mineE.position.set(20,0,-18); sc.add(mineE); this.addLabel('⛏️ Tambang', mineE, 2.8);
+    const bench=Builders.workbench(); bench.position.set(3.5,0,6); sc.add(bench);
+    this.register(bench,'workbench',{},2.0,1.8); this.addLabel('🔨 Meja Kerja', bench, 1.4);
 
     // ---- NPCs ----
     const npcDefs=[
@@ -1390,7 +1449,8 @@ const World = {
     const occ=[[-9,-6,3.2],[8,-5,3.2],[5,8,3.2],[2,9,2.4],[-6,8,3.2],[-6,11.5,2.6],
       [8,3,2.4],[11,5,2.4],[6,11,2.2],[12,9,2.2],[-3,4,2.2],[-3.6,8,2],[0,12.5,2],
       [-9,-2.5,2.6],[-7,-1,2],[-11,-1.5,2],[13,-1,3.2],
-      [-14,7,3],[16,14,4.5],[14,-8,2.5],[-15,-9,2.5],[10,-13,2.5],[-15,13,4]]; // buildings/pond/lake/landmarks
+      [-14,7,3],[16,14,4.5],[14,-8,2.5],[-15,-9,2.5],[10,-13,2.5],[-15,13,4],
+      [20,-16,7],[14,10,3.5],[3.5,6,2]]; // buildings/pond/lake/landmarks/mine/museum/bench
     for(const [ox,oz,r] of occ){ if(Math.hypot(x-ox,z-oz)<r) return false; }
     return true;
   },
@@ -1827,8 +1887,8 @@ const Inv={
   remove(id,n=1){ if((GS.data.inventory[id]||0)<n) return false; GS.data.inventory[id]-=n; if(GS.data.inventory[id]<=0) delete GS.data.inventory[id]; UI.renderInventory(); SaveManager.request(); return true; },
   has(id,n=1){ return (GS.data.inventory[id]||0)>=n; },
   count(id){ return GS.data.inventory[id]||0; },
-  nameOf(id){ const b=baseId(id); const nm=CROPS[b]?.name||PRODUCTS[b]?.name||RECIPES[b]?.name||FISH[b]?.name||BUGS[b]?.name||FOSSILS[b]?.name||SUPPLIES[b]?.name||b; return nm+(id!==b?' ★':''); },
-  emojiOf(id){ const b=baseId(id); return CROPS[b]?.emoji||PRODUCTS[b]?.emoji||RECIPES[b]?.emoji||FISH[b]?.emoji||BUGS[b]?.emoji||FOSSILS[b]?.emoji||SUPPLIES[b]?.emoji||(b.startsWith('benih_')?'🌰':'❓'); },
+  nameOf(id){ const b=baseId(id); const nm=CROPS[b]?.name||PRODUCTS[b]?.name||RECIPES[b]?.name||FISH[b]?.name||BUGS[b]?.name||FOSSILS[b]?.name||MATS[b]?.name||SUPPLIES[b]?.name||b; return nm+(id!==b?' ★':''); },
+  emojiOf(id){ const b=baseId(id); return CROPS[b]?.emoji||PRODUCTS[b]?.emoji||RECIPES[b]?.emoji||FISH[b]?.emoji||BUGS[b]?.emoji||FOSSILS[b]?.emoji||MATS[b]?.emoji||SUPPLIES[b]?.emoji||(b.startsWith('benih_')?'🌰':'❓'); },
 };
 
 /* ---- Energy ---- */
@@ -2225,10 +2285,10 @@ const Economy={
   spend(n){ GS.data.coins=Math.max(0,GS.data.coins-n); UI.updateCoins(); },
   earn(n){ GS.data.coins+=n; UI.updateCoins(); Audio.sfx('coin'); Stats.inc('coins',n); },
   // souvenir shop: sell raw goods instantly (lower price) + open upgrades
-  _price(id){ const b=baseId(id); let p=CROPS[b]?.sell||PRODUCTS[b]?.sell||FISH[b]?.sell||BUGS[b]?.sell||FOSSILS[b]?.sell||5;
+  _price(id){ const b=baseId(id); let p=CROPS[b]?.sell||PRODUCTS[b]?.sell||FISH[b]?.sell||BUGS[b]?.sell||FOSSILS[b]?.sell||MATS[b]?.sell||5;
     if(id!==b) p=Math.round(p*1.6);                       // ★ premium quality
     if(GS.data.shopDeal && GS.data.shopDeal.id===id) p=Math.round(p*1.5); return p; },
-  sellableId(id){ const b=baseId(id); return !!(CROPS[b]||PRODUCTS[b]||FISH[b]||BUGS[b]||FOSSILS[b]); },
+  sellableId(id){ const b=baseId(id); return !!(CROPS[b]||PRODUCTS[b]||FISH[b]||BUGS[b]||FOSSILS[b]||MATS[b]); },
   ensureDeal(){ if(GS.data.shopDeal.day!==GS.data.day){ GS.data.shopDeal.day=GS.data.day;
     const pool=[...Object.keys(CROPS),...Object.keys(PRODUCTS),...Object.keys(FISH).filter(k=>!FISH[k].junk)];
     GS.data.shopDeal.id=Util.pick(pool); } },
@@ -2610,7 +2670,7 @@ const Decor={
     GS.data.placedDecor.forEach(d=>{ const m=Builders.decor(d.type); m.position.set(d.x,0,d.z); m.rotation.y=d.ry||0; m.userData.decorRef=d; this.group.add(m); });
   },
   openShopMenu(){
-    const opts=Object.keys(DECOR).map(t=>({id:t,icon:DECOR[t].emoji,title:'Beli '+DECOR[t].name,
+    const opts=Object.keys(DECOR).filter(t=>!DECOR[t].craftOnly).map(t=>({id:t,icon:DECOR[t].emoji,title:'Beli '+DECOR[t].name,
       meta:'🪙'+DECOR[t].cost+(GS.data.decorInv[t]?(' · punya '+GS.data.decorInv[t]):''),
       disabled:GS.data.coins<DECOR[t].cost,onPick:()=>this.buy(t)}));
     opts.push({id:'place',icon:'✋',title:'Mode Tata (letakkan / ambil)',meta:'→',onPick:()=>this.enterEdit()});
@@ -2755,6 +2815,46 @@ const Festivals={
   }
 };
 
+/* ---- Mine: rocky zone with ore nodes that respawn daily ---- */
+const Mine={
+  nodes:[], zone:{x:20,z:-16},
+  daily(){ this.clear(); const n=Util.randInt(5,7); for(let i=0;i<n;i++) this.spawn(); },
+  spawn(){
+    const x=this.zone.x+Util.rand(-4.5,4.5), z=this.zone.z+Util.rand(-4.5,4.5);
+    const r=Math.random(), kind = r<0.6?'batu' : r<0.9?'bijih' : 'kristal';
+    const m=Builders.oreNode(kind); m.position.set(x,0,z); SceneSetup.scene.add(m);
+    m.userData.kind=kind; m.userData.entry=World.register(m,'ore',{ref:m},1.9,1.6); this.nodes.push(m);
+  },
+  mine(m){ const kind=m.userData.kind; Inv.add(kind,1);
+    if(kind!=='kristal' && Math.random()<0.3) Inv.add('batu',1);
+    UI.popAt('+1 '+MATS[kind].name+' '+MATS[kind].emoji, m.position, kind==='kristal'?'#aee2ff':'#fff');
+    Audio.sfx('harvest'); UI.haptic(12); Particles_burst(m.position, kind==='kristal'?0xaee2ff:0xb0b0b0, kind==='kristal'?8:6); Energy.spend(2);
+    this.remove(m); SaveManager.request();
+  },
+  remove(m){ const i=World.interactables.findIndex(e=>e.root===m);
+    if(i>=0){ SceneSetup.scene.remove(World.interactables[i].hit); World.interactables.splice(i,1); }
+    SceneSetup.scene.remove(m); const j=this.nodes.indexOf(m); if(j>=0) this.nodes.splice(j,1); },
+  clear(){ this.nodes.slice().forEach(m=>this.remove(m)); }
+};
+
+/* ---- Crafting: turn mined materials into placeable decorations ---- */
+const Crafting={
+  open(){
+    const opts=Object.keys(CRAFT).map(k=>{ const r=CRAFT[k];
+      const can=Object.entries(r.need).every(([id,n])=>Inv.has(id,n));
+      const needStr=Object.entries(r.need).map(([id,n])=>Inv.emojiOf(id)+'×'+n).join(' ');
+      return {id:k,icon:r.emoji,title:'Buat '+r.name,meta:needStr,disabled:!can,onPick:()=>this.craft(k)}; });
+    UI.choice('🔨 Meja Kerja', opts);
+  },
+  craft(k){ const r=CRAFT[k];
+    if(!Object.entries(r.need).every(([id,n])=>Inv.has(id,n))) return;
+    Object.entries(r.need).forEach(([id,n])=>Inv.remove(id,n));
+    GS.data.decorInv[k]=(GS.data.decorInv[k]||0)+1;
+    UI.toast('🔨 Jadi '+r.name+' '+r.emoji+'! Taruh lewat Toko 🛒 → Furnitur → Mode Tata.');
+    Audio.sfx('done'); UI.haptic(14); UI.confetti(); SaveManager.request(); setTimeout(()=>this.open(),160);
+  }
+};
+
 /* ====================================================================== */
 /* Interaction dispatcher — routes a tapped entry to the right system     */
 /* ====================================================================== */
@@ -2770,6 +2870,8 @@ const Interactions={
       case 'pet':      Pet.interact(); break;
       case 'museum':   Museum.open(); break;
       case 'festival': Festivals.open(); break;
+      case 'ore':      Mine.mine(entry.data.ref); break;
+      case 'workbench':Crafting.open(); break;
       case 'kitchen':  Cooking.open(); break;
       case 'shop':     Economy.openShop(); break;
       case 'shipping': Economy.openShipping(); break;
@@ -3222,7 +3324,7 @@ const Game={
     UI.updateCoins(); UI.updateEnergy(); UI.renderInventory(); UI.updateDayLabel();
     NPCSys.maybeEvent();
     Quests.ensure(); Mailbox.updateFlag();
-    Economy.ensureDeal(); Decor.init(); Bugs.init(); Dig.daily();
+    Economy.ensureDeal(); Decor.init(); Bugs.init(); Dig.daily(); Mine.daily();
     Pet.init(); Festivals.refresh();
     UI.tutorialStart();
 
@@ -3249,6 +3351,7 @@ const Game={
       NPCSys.maybeEvent();
       Quests.ensure(); Mailbox.updateFlag();   // fresh quests + new daily gift
       Economy.ensureDeal(); Dig.daily();        // new shop deal + fresh dig spots
+      Mine.daily();                             // fresh ore nodes
       Festivals.refresh();                      // festival NPC for the new day
       SaveManager.save();
       UI.toast('☀️ Hari '+GS.data.day+' · '+GS.data.season+' '+SEASON_EMOJI[GS.data.season]);

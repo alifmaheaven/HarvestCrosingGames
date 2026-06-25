@@ -41,6 +41,8 @@ Built with **Three.js (WebGL)**, primitive geometry only (no external 3D models)
 - 🐶 **Companion pet** — a dog/cat that follows you, can be petted (sometimes finds coins), named, and switched type.
 - 🏛️ **Museum** — donate one of each fish, bug, and fossil to fill the display cases (completion rewards).
 - 🎉 **Seasonal festivals** — each season has a festival day with a delivery challenge for coins + an exclusive decoration.
+- ⛏️ **Mine** — a rocky corner with ore nodes (stone/iron/crystal) that respawn daily; sell the materials or use them for crafting.
+- 🔨 **Crafting** — a workbench turns mined materials into placeable decorations (stone lamp, statue, brazier, fountain, crystal display).
 - 📖 **Collection & progression** — notebook checklist, milestone confetti, land/coop expansion, character customization, and a nameable farm sign.
 - 🔊 **Juice & audio** — Web Audio generated ambient music + layered SFX, squash-stretch tweens, particle bursts, and floating popups.
 - 💾 **Versioned save system** — debounced autosave + save-on-sleep, with a graceful in-memory fallback if `localStorage` is unavailable.
