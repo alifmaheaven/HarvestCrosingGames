@@ -90,11 +90,13 @@ html,body{
 .inv-slot.sel{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent);}
 .inv-empty{font-size:11px;opacity:.4;color:#999;}
 
-/* tool indicator */
-#tool-pill{position:fixed;right:calc(var(--safe-r) + 10px);
-  bottom:calc(var(--safe-b) + 78px);background:rgba(255,249,236,.92);
-  border:2px solid var(--panel-edge);border-radius:16px;padding:6px 10px;
-  font-size:20px;box-shadow:0 3px 0 rgba(0,0,0,.12);}
+/* settings menu grid */
+.menu-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:4px;}
+.mbtn{display:flex;flex-direction:column;align-items:center;gap:3px;padding:11px 4px;border:2px solid var(--panel-edge);
+  border-radius:14px;background:#fff;font-size:24px;color:var(--ink);box-shadow:0 2px 0 rgba(0,0,0,.08);}
+.mbtn span{font-size:11px;font-weight:700;}
+.mbtn:active{transform:translateY(2px);box-shadow:none;}
+.sec-h{font-weight:800;color:var(--leaf-dark);margin:12px 0 2px;font-size:13px;border-top:1px dashed #e7d6b0;padding-top:10px;}
 
 /* [S4] Joystick --------------------------------------------------------- */
 #joy{position:fixed;pointer-events:none;z-index:8;opacity:0;transition:opacity .15s ease;}
@@ -275,7 +277,6 @@ html,body{
   <div id="energy-wrap"><div id="energy-fill"></div></div>
   <div id="day-pill" class="hud-pill"><span id="day-line">Hari 1 · Semi</span><small id="time-line">Pagi · ☀️</small></div>
   <button id="menu-btn">☰</button>
-  <div id="tool-pill">✋</div>
   <div id="zoom-ctrl"><button id="zoom-in">＋</button><button id="zoom-out">－</button><button id="photo-btn">📷</button></div>
   <canvas id="minimap" width="120" height="120"></canvas>
   <div id="inv-bar"></div>
@@ -362,7 +363,7 @@ import * as THREE from 'three';
 
 /* [0] Global constants -------------------------------------------------- */
 const TILE = 2;                       // world units per farm tile
-const DAY_LENGTH = 360;               // real seconds per in-game day (~6 min)
+const DAY_LENGTH = 420;               // real seconds per in-game day (~7 min)
 const SEASONS = ['Semi','Panas','Gugur','Dingin'];
 const SEASON_DAYS = 3;                // in-game days per season (demo)
 const SEASON_EMOJI = {Semi:'🌸',Panas:'☀️',Gugur:'🍂',Dingin:'❄️'};
@@ -586,7 +587,7 @@ function defaultSave(){
   return {
     saveVersion:SAVE_VERSION,
     farmName:'Kebun Cozy',
-    coins:50,
+    coins:60,
     energy:100,
     day:1, season:'Semi', weather:'cerah',
     timeOfDay:0.28,                      // 0..1 fraction of day (start morning)
@@ -2310,7 +2311,7 @@ const Economy={
     const sellable=Object.keys(GS.data.inventory).filter(id=>this.sellableId(id));
     const opts=[];
     opts.push({id:'deal',icon:'⭐',title:'Penawaran hari ini: '+Inv.nameOf(GS.data.shopDeal.id)+' '+Inv.emojiOf(GS.data.shopDeal.id)+' +50% jual!',meta:'',disabled:true,onPick:()=>{}});
-    opts.push({id:'pupuk',icon:'🌿',title:'Beli Pupuk',meta:'🪙15',disabled:GS.data.coins<15,onPick:()=>{Economy.spend(15);Inv.add('pupuk',1);UI.toast('🌿 Pupuk dibeli');UI.haptic(10);setTimeout(()=>this.openShop(),120);}});
+    opts.push({id:'pupuk',icon:'🌿',title:'Beli Pupuk',meta:'🪙12',disabled:GS.data.coins<12,onPick:()=>{Economy.spend(12);Inv.add('pupuk',1);UI.toast('🌿 Pupuk dibeli');UI.haptic(10);setTimeout(()=>this.openShop(),120);}});
     sellable.forEach(id=>{
       const instant=Math.round(this._price(id)*0.8);
       opts.push({id, icon:Inv.emojiOf(id), title:'Jual '+Inv.nameOf(id),
@@ -2328,8 +2329,8 @@ const Economy={
     const rod=GS.data.tools.rod||1;
     if(rod<3){ const cost=[0,140,300][rod]; opts.push({id:'rod',icon:'🎣',title:'Joran Lv'+(rod+1)+' (zona hijau lebih besar, ikan langka↑)',meta:'🪙'+cost,disabled:c<cost,onPick:()=>this._buy(cost,()=>{GS.data.tools.rod=rod+1;UI.toast('Joran Lv'+(rod+1)+'! Memancing makin gampang 🎣');})}); }
     if(!GS.data.tools.shoes) opts.push({id:'shoe',icon:'👟',title:'Sepatu Lari (gerak lebih cepat)',meta:'🪙180',disabled:c<180,onPick:()=>this._buy(180,()=>{GS.data.tools.shoes=1;UI.toast('Sepatu Lari! Jalan lebih ngebut 👟');})});
-    if(!GS.data.tools.sprinkler) opts.push({id:'spr',icon:'💧',title:'Sprinkler Otomatis (siram kebun tiap pagi)',meta:'🪙500',disabled:c<500,onPick:()=>this._buy(500,()=>{GS.data.tools.sprinkler=true;UI.toast('💧 Sprinkler terpasang! Kebun disiram otomatis tiap pagi.');})});
-    if(!GS.data.greenhouse) opts.push({id:'gh',icon:'🏡',title:'Rumah Kaca (tanam lintas-musim)',meta:'🪙800',disabled:c<800,onPick:()=>this._buy(800,()=>{GS.data.greenhouse=true;World.buildGreenhouse();UI.toast('🏡 Rumah Kaca dibangun! Tanam benih apa saja kapan saja.');})});
+    if(!GS.data.tools.sprinkler) opts.push({id:'spr',icon:'💧',title:'Sprinkler Otomatis (siram kebun tiap pagi)',meta:'🪙450',disabled:c<450,onPick:()=>this._buy(450,()=>{GS.data.tools.sprinkler=true;UI.toast('💧 Sprinkler terpasang! Kebun disiram otomatis tiap pagi.');})});
+    if(!GS.data.greenhouse) opts.push({id:'gh',icon:'🏡',title:'Rumah Kaca (tanam lintas-musim)',meta:'🪙750',disabled:c<750,onPick:()=>this._buy(750,()=>{GS.data.greenhouse=true;World.buildGreenhouse();UI.toast('🏡 Rumah Kaca dibangun! Tanam benih apa saja kapan saja.');})});
     if(!GS.data.plotsExpanded) opts.push({id:'land',icon:'🌾',title:'Perluas lahan (+petak)',meta:'🪙200',disabled:c<200,onPick:()=>this.expandLand()});
     if(!opts.length){ UI.toast('Semua alat sudah maksimal! ✨'); return; }
     UI.choice('🔧 Upgrade Alat', opts);
@@ -2619,9 +2620,9 @@ const Quests={
   claim(){
     if(!this.allDone() || GS.data.quests.claimed) return;
     GS.data.quests.claimed=true;
-    Economy.earn(60);
+    Economy.earn(75);
     Object.keys(GS.data.friendship).forEach(k=>NPCSys.addFriend(k,0.3));
-    UI.toast('🎁 Hadiah misi harian: +🪙60 + ❤ semua warga!'); UI.confetti(); UI.haptic(15);
+    UI.toast('🎁 Hadiah misi harian: +🪙75 + ❤ semua warga!'); UI.confetti(); UI.haptic(15);
     SaveManager.request();
   }
 };
@@ -2633,7 +2634,7 @@ const Mailbox={
     if(!this.available()){ UI.toast('📭 Belum ada surat. Cek lagi besok ya!'); return; }
     GS.data.mailbox.lastClaim=GS.data.day; UI.haptic(12); Audio.sfx('coin');
     const r=Math.random();
-    if(r<0.45){ const c=Util.randInt(25,60); Economy.earn(c); UI.toast('📬 Hadiah harian: 🪙'+c+'!'); }
+    if(r<0.45){ const c=Util.randInt(30,70); Economy.earn(c); UI.toast('📬 Hadiah harian: 🪙'+c+'!'); }
     else if(r<0.8){ const id=Util.pick(Object.keys(CROPS)); Inv.add(id,2); UI.toast('📬 Hadiah harian: 2 '+CROPS[id].name+' '+CROPS[id].emoji); }
     else { const id=Util.pick(Object.keys(PRODUCTS).filter(k=>k!=='daging')); Inv.add(id,1); UI.toast('📬 Hadiah harian: '+PRODUCTS[id].name+' '+PRODUCTS[id].emoji); }
     Particles_burst(new THREE.Vector3(World.player.position.x,1.4,World.player.position.z),0xffd84d,6);
@@ -2659,7 +2660,7 @@ const Bugs={
   },
   catch(b){
     const key=b.userData.key;
-    if(Math.random()<0.18){ UI.popAt('💨 kabur!', b.position); Audio.sfx('step'); this.remove(b); setTimeout(()=>this.spawn(),Util.rand(3,7)*1000); return; }
+    if(Math.random()<0.12){ UI.popAt('💨 kabur!', b.position); Audio.sfx('step'); this.remove(b); setTimeout(()=>this.spawn(),Util.rand(3,7)*1000); return; }
     Inv.add(key,1); Collection.markBug(key);
     UI.popAt('+1 '+BUGS[key].name+' '+BUGS[key].emoji, b.position,'#caffca');
     Audio.sfx('harvest'); UI.haptic(12); Particles_burst(b.position,0xcaffca,5);
@@ -3111,17 +3112,20 @@ const UI={
   /* ---- Settings panel ---- */
   openSettings(){
     const s=GS.data.settings, body=Util.$('#settings-body');
-    body.innerHTML='<button class="close">✕</button><h2>⚙️ Pengaturan</h2>'
-      +this._slider('Musik', 'music', s.music)
-      +this._slider('Efek Suara', 'sfx', s.sfx)
-      +this._slider('Sensitivitas', 'sensitivity', s.sensitivity, 0.5, 1.8)
-      +this._toggleRow('Haptic (getar)', 'haptic', s.haptic)
-      +this._toggleRow('Mode Santai (lewati menggembur)', 'casual', GS.data.casualMode)
-      +'<div class="row"><span>📋 Misi Harian</span><button class="btn sec" id="open-q">Buka</button></div>'
-      +'<div class="row"><span>🏆 Pencapaian</span><button class="btn sec" id="open-ach">Buka</button></div>'
-      +'<div class="row"><span>📖 Buku Catatan</span><button class="btn sec" id="open-nb">Buka</button></div>'
-      +'<div class="row"><span>🍳 Buku Resep</span><button class="btn sec" id="open-rb">Buka</button></div>'
-      +'<div class="row"><span>👕 Ganti Penampilan</span><button class="btn sec" id="open-cc">Buka</button></div>'
+    body.innerHTML='<button class="close">✕</button><h2>☰ Menu</h2>'
+      +'<div class="menu-grid">'
+        +'<button class="mbtn" id="open-q">📋<span>Misi</span></button>'
+        +'<button class="mbtn" id="open-ach">🏆<span>Pencapaian</span></button>'
+        +'<button class="mbtn" id="open-nb">📖<span>Catatan</span></button>'
+        +'<button class="mbtn" id="open-rb">🍳<span>Resep</span></button>'
+        +'<button class="mbtn" id="open-cc">👕<span>Penampilan</span></button>'
+      +'</div>'
+      +'<div class="sec-h">⚙️ Pengaturan</div>'
+      +this._slider('🎵 Musik', 'music', s.music)
+      +this._slider('🔊 Efek Suara', 'sfx', s.sfx)
+      +this._slider('🎮 Sensitivitas', 'sensitivity', s.sensitivity, 0.5, 1.8)
+      +this._toggleRow('📳 Haptic (getar)', 'haptic', s.haptic)
+      +this._toggleRow('🌿 Mode Santai (lewati menggembur)', 'casual', GS.data.casualMode)
       +'<button class="btn wide" id="save-now">💾 Simpan Sekarang</button>';
     const close=()=>Util.$('#modal-settings').classList.remove('on');
     body.querySelector('.close').addEventListener('click',close);
