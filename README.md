@@ -22,7 +22,7 @@ Built with **Three.js (WebGL)**, primitive geometry only (no external 3D models)
 - **Polished touch controls** — dynamic virtual joystick (dead zone, clamp radius, analog speed), robust tap-vs-drag disambiguation, single-touch lock, camera-relative movement, live raycast highlight on touchmove, oversized hitboxes, auto-walk-to-interact, and haptics with graceful fallback.
 - **Isometric smooth-follow camera** (45°, no OrbitControls) with subtle look-ahead.
 - **Full day/season/weather cycle** — gradual sky/fog/light color transitions (morning → midday → golden hour → dusk → night with stars & fireflies), 4 seasons, daily weather (rain auto-waters crops), and a sleep-to-advance-day mechanic.
-- 🌾 **Farming** — till, plant, water, harvest; seasonal seeds; a Level-2 watering can that waters a 3×3 at once.
+- 🌾 **Farming** — till, plant, water, harvest; seasonal seeds; **fertilizer** (faster growth, premium ★ crops, chance of double yield), **★ crop quality** that sells higher, an **auto-sprinkler** upgrade, and a **greenhouse** for planting any season's seed year-round.
 - 🐮 **Ranching** — a fenced paddock where livestock graze and wander; an upgradeable barn (cows & sheep) and chicken coop with capacity limits, buyable livestock, milk/shear/egg actions when an animal is ready, feed/pet/"feed all", animal naming, and an auto-feeder trough that keeps everyone fed.
 - 🏷️ **Name labels** float above every building and key object (semi-transparent, readable) and fade in as you walk closer.
 - 🍳 **Cooking** — 4 recipes with gradual unlocks and a recipe book (locked recipes shown as silhouettes).

@@ -567,8 +567,9 @@ function defaultSave(){
     day:1, season:'Semi', weather:'cerah',
     timeOfDay:0.28,                      // 0..1 fraction of day (start morning)
     inventory:{},                        // {id:qty}
-    plots:Array.from({length:9},()=>({tilled:false,crop:null,planted:0,grown:false,watered:false})),
+    plots:Array.from({length:9},()=>({tilled:false,crop:null,planted:0,grown:false,watered:false,fert:false})),
     plotsExpanded:false,                 // 3x3 -> extra plots (TODO simple)
+    greenhouse:false,                    // greenhouse unlocked (plant any season)
     ranch:{                              // upgradeable barn (mammals) + coop (chickens)
       barnLevel:1, coopLevel:1, nextId:4,
       feeder:{fill:0,max:60},            // auto-feeder trough fuel
@@ -578,7 +579,7 @@ function defaultSave(){
         {id:3,type:'domba',name:null,mood:60,last:0,ready:false},
       ]
     },
-    tools:{watering:1, rod:1, shoes:0}, // watering can / fishing rod / running shoes levels
+    tools:{watering:1, rod:1, shoes:0, sprinkler:false}, // watering can / fishing rod / running shoes / sprinkler
     recipesUnlocked:{salad:true,smoothie:true,omelet:false,steak:false},
     friendship:{sari:0,tono:0,mira:0},
     greetedToday:[],
@@ -619,7 +620,9 @@ const SaveManager = {
       data=this.migrate(data);
       data=Object.assign(defaultSave(), data); // fill any missing top-level keys
       // deep-fill nested objects so older saves still receive new keys
-      data.tools=Object.assign({watering:1,rod:1,shoes:0}, data.tools);
+      data.tools=Object.assign({watering:1,rod:1,shoes:0,sprinkler:false}, data.tools);
+      data.greenhouse=data.greenhouse||false;
+      (data.plots||[]).forEach(p=>{ if(p.fert===undefined) p.fert=false; });
       data.settings=Object.assign({music:0.4,sfx:0.7,haptic:true,sensitivity:1.0,zoom:1.0}, data.settings);
       data.notebook=Object.assign({crops:{},recipes:{},animals:{},fish:{},bugs:{},fossils:{}}, data.notebook);
       data.decorInv=data.decorInv||{};
@@ -839,6 +842,8 @@ const DayCycle = {
     GS.data.weather = r<0.25?'hujan' : r<0.5?'berawan' : 'cerah';
     // rain auto-waters all crops (cozy QoL)
     if(GS.data.weather==='hujan') GS.data.plots.forEach(p=>{ if(p.crop) p.watered=true; });
+    // sprinkler upgrade waters every morning regardless of weather
+    if(GS.data.tools&&GS.data.tools.sprinkler) GS.data.plots.forEach(p=>{ if(p.crop) p.watered=true; });
     // resolve shipping bin sales
     Economy.resolveShipping();
     // reset daily produce timers a bit so morning feels fresh
@@ -1116,6 +1121,17 @@ const Builders = {
     const door=new THREE.Mesh(new THREE.BoxGeometry(0.9,1.3,0.1),mat(0x8a6034)); door.position.set(0,0.85,1.55); g.add(door);
     return g;
   },
+  // glass greenhouse (half-cylinder glass roof)
+  greenhouse(){
+    const g=new THREE.Group();
+    const glass=new THREE.Mesh(new THREE.BoxGeometry(6.4,1.8,2.8),mat(0xaee2ff,{transparent:true,opacity:0.28})); glass.position.y=0.9; g.add(glass);
+    const roof=new THREE.Mesh(new THREE.CylinderGeometry(1.5,1.5,6.4,14,1,false,0,Math.PI),mat(0xcfe8ff,{transparent:true,opacity:0.32}));
+    roof.rotation.z=Math.PI/2; roof.position.y=1.8; g.add(roof);
+    const base=new THREE.Mesh(new THREE.BoxGeometry(6.6,0.2,3),mat(0xb98a55)); base.position.y=0.1; g.add(base);
+    // corner frames
+    [[-3.2,-1.4],[3.2,-1.4],[-3.2,1.4],[3.2,1.4]].forEach(([x,z])=>{const f=new THREE.Mesh(new THREE.BoxGeometry(0.12,1.8,0.12),mat(0xeae0c8));f.position.set(x,0.9,z);g.add(f);});
+    return g;
+  },
   // diggable mound with an X mark
   digSpot(){
     const g=new THREE.Group();
@@ -1217,6 +1233,7 @@ const World = {
 
     // ---- ranch: upgradeable barn + coop with buyable livestock ----
     this.buildRanch();
+    if(GS.data.greenhouse) this.buildGreenhouse();
 
     // ---- kitchen ----
     const kitchen=Builders.kitchen(); kitchen.position.set(8,0,-5); sc.add(kitchen);
@@ -1328,6 +1345,18 @@ const World = {
     chk.forEach((a,i)=>{ const m=this.animalObjs[a.id]; if(!m) return; const col=i%3,row=Math.floor(i/3);
       m.position.set(-16+col*1.2, 0, -2.4+row*1.2); m.userData.wt=null; });
     GS.data.ranch.animals.forEach(a=>{ const m=this.animalObjs[a.id]; if(m&&m.userData.entry) m.userData.entry.hit.position.set(m.position.x,0.6,m.position.z); });
+  },
+  // greenhouse: a building + 4 plots flagged gh:true (any season allowed)
+  buildGreenhouse(){
+    if(this._ghBuilt) return; this._ghBuilt=true;
+    const sc=SceneSetup.scene;
+    const gh=Builders.greenhouse(); gh.position.set(-3,0,-9.5); sc.add(gh); this.addLabel('🏡 Rumah Kaca', gh, 2.7);
+    const have=GS.data.plots.filter(p=>p.gh).length;
+    for(let k=have;k<4;k++) GS.data.plots.push({tilled:false,crop:null,planted:0,grown:false,watered:false,fert:false,gh:true});
+    let ord=0;
+    GS.data.plots.forEach((p,i)=>{ if(!p.gh) return;
+      if(!this.plotMeshes[i]){ const pl=Builders.plot(); pl.position.set(-4.6+ord*1.5,0,-9.5); sc.add(pl); this.plotMeshes[i]=pl; this.register(pl,'plot',{index:i},1.8,TILE*0.7); }
+      this.refreshPlot(i); ord++; });
   },
 
   buildFence(){
@@ -1581,9 +1610,11 @@ const World = {
 
   // refresh plant visuals for a plot
   refreshPlot(i){
-    const p=this.plotMeshes[i], data=GS.data.plots[i];
+    const p=this.plotMeshes[i]; if(!p) return;
+    const data=GS.data.plots[i];
     if(p.userData.plant){ p.remove(p.userData.plant); p.userData.plant=null; }
     p.userData.soil.material.color.set(data.tilled?0x7a5c3e:0x9b7653);
+    if(data.fert) p.userData.soil.material.color.set(0x5a4326);   // rich fertilized soil
     if(data.watered) p.userData.soil.material.color.multiplyScalar(0.8);
     if(data.crop){
       let prog=data.grown?1:Util.clamp((GS.time-data.planted)/CROPS[data.crop].grow,0,1);
@@ -1789,13 +1820,15 @@ const Input = {
 /* ====================================================================== */
 
 /* ---- Inventory helpers ---- */
+const SUPPLIES={ pupuk:{name:'Pupuk', emoji:'🌿'} };
+function baseId(id){ return (typeof id==='string'&&id.endsWith('★')) ? id.slice(0,-1) : id; } // strip quality star
 const Inv={
   add(id,n=1){ GS.data.inventory[id]=(GS.data.inventory[id]||0)+n; UI.renderInventory(); SaveManager.request(); },
   remove(id,n=1){ if((GS.data.inventory[id]||0)<n) return false; GS.data.inventory[id]-=n; if(GS.data.inventory[id]<=0) delete GS.data.inventory[id]; UI.renderInventory(); SaveManager.request(); return true; },
   has(id,n=1){ return (GS.data.inventory[id]||0)>=n; },
   count(id){ return GS.data.inventory[id]||0; },
-  nameOf(id){ return CROPS[id]?.name||PRODUCTS[id]?.name||RECIPES[id]?.name||FISH[id]?.name||BUGS[id]?.name||FOSSILS[id]?.name||id; },
-  emojiOf(id){ return CROPS[id]?.emoji||PRODUCTS[id]?.emoji||RECIPES[id]?.emoji||FISH[id]?.emoji||BUGS[id]?.emoji||FOSSILS[id]?.emoji||(id.startsWith('benih_')?'🌰':'❓'); },
+  nameOf(id){ const b=baseId(id); const nm=CROPS[b]?.name||PRODUCTS[b]?.name||RECIPES[b]?.name||FISH[b]?.name||BUGS[b]?.name||FOSSILS[b]?.name||SUPPLIES[b]?.name||b; return nm+(id!==b?' ★':''); },
+  emojiOf(id){ const b=baseId(id); return CROPS[b]?.emoji||PRODUCTS[b]?.emoji||RECIPES[b]?.emoji||FISH[b]?.emoji||BUGS[b]?.emoji||FOSSILS[b]?.emoji||SUPPLIES[b]?.emoji||(b.startsWith('benih_')?'🌰':'❓'); },
 };
 
 /* ---- Energy ---- */
@@ -1826,14 +1859,21 @@ const Farming={
     }
   },
   openSeedPicker(i){
-    const opts=Object.keys(CROPS).map(k=>{
-      const c=CROPS[k], inSeason=(c.season===GS.data.season);
-      return {id:k, icon:c.emoji, title:c.name,
-        meta:(inSeason?'🌿 Musim ini':'⛔ '+c.season)+' · 🪙'+SEEDS[k].cost,
+    const p=GS.data.plots[i];
+    const opts=[];
+    // fertilizer option (raises quality + growth) if available and not yet fertilized
+    if(!p.fert && Inv.has('pupuk')){
+      opts.push({id:'fert',icon:'🌿',title:'Taburi pupuk dulu (kualitas↑ & tumbuh cepat)',meta:'1 🌿',
+        onPick:()=>{ Inv.remove('pupuk',1); p.fert=true; World.refreshPlot(i); UI.popAt('🌿 Dipupuk',World.plotMeshes[i].position); Audio.sfx('plant'); UI.haptic(10); SaveManager.request(); setTimeout(()=>this.openSeedPicker(i),140); }});
+    }
+    Object.keys(CROPS).forEach(k=>{
+      const c=CROPS[k], inSeason = p.gh ? true : (c.season===GS.data.season);
+      opts.push({id:k, icon:c.emoji, title:c.name,
+        meta:(p.gh?'🏡 Rumah kaca':(inSeason?'🌿 Musim ini':'⛔ '+c.season))+' · 🪙'+SEEDS[k].cost,
         disabled:!inSeason || GS.data.coins<SEEDS[k].cost,
-        onPick:()=>this.plant(i,k)};
+        onPick:()=>this.plant(i,k)});
     });
-    UI.choice('Pilih Benih', opts);
+    UI.choice(p.fert?'Pilih Benih (🌿 dipupuk)':'Pilih Benih', opts);
   },
   plant(i,key){
     if(GS.data.coins<SEEDS[key].cost){ UI.toast('Koin kurang 🪙'); return; }
@@ -1862,14 +1902,19 @@ const Farming={
   },
   harvest(i){
     const p=GS.data.plots[i], key=p.crop;
-    Inv.add(key,1);
+    // quality roll — fertilized plots much likelier to yield a premium ★ crop
+    const premium = Math.random() < (p.fert?0.55:0.16);
+    const outId = premium ? key+'★' : key;
+    Inv.add(outId,1);
+    // fertilized plots sometimes yield an extra crop
+    if(p.fert && Math.random()<0.5) Inv.add(key,1);
     Collection.markCrop(key);
     Quests.progress('harvest'); Stats.inc('harvest');
-    UI.popAt('+1 '+CROPS[key].name+' '+CROPS[key].emoji, World.plotMeshes[i].position,'#fff');
+    UI.popAt((premium?'+1 ★ ':'+1 ')+CROPS[key].name+' '+CROPS[key].emoji, World.plotMeshes[i].position, premium?'#ffe08a':'#fff');
     Audio.sfx('harvest'); UI.haptic(14);
-    Particles_burst(World.plotMeshes[i].position, CROPS[key].fruit, 6);
+    Particles_burst(World.plotMeshes[i].position, premium?0xffe08a:CROPS[key].fruit, premium?8:6);
     Tween.pop(World.plotMeshes[i],1.2);
-    p.crop=null; p.grown=false; p.watered=false; p.tilled=GS.data.casualMode?false:true;
+    p.crop=null; p.grown=false; p.watered=false; p.fert=false; p.tilled=GS.data.casualMode?false:true;
     World.refreshPlot(i);
     UI.tutorialStep('sell');
     SaveManager.request();
@@ -1879,6 +1924,7 @@ const Farming={
     GS.data.plots.forEach((p,i)=>{
       if(p.crop && !p.grown){
         let rate=1; if(CROPS[p.crop].season===GS.data.season) rate=1.15; // in-season slightly faster
+        if(p.fert) rate*=1.35;                                            // fertilizer speeds growth
         const eff=(GS.time-p.planted)*rate;
         if(eff>=CROPS[p.crop].grow){ p.grown=true; World.refreshPlot(i); }
       }
@@ -2179,16 +2225,19 @@ const Economy={
   spend(n){ GS.data.coins=Math.max(0,GS.data.coins-n); UI.updateCoins(); },
   earn(n){ GS.data.coins+=n; UI.updateCoins(); Audio.sfx('coin'); Stats.inc('coins',n); },
   // souvenir shop: sell raw goods instantly (lower price) + open upgrades
-  _price(id){ let p=CROPS[id]?.sell||PRODUCTS[id]?.sell||FISH[id]?.sell||BUGS[id]?.sell||FOSSILS[id]?.sell||5;
+  _price(id){ const b=baseId(id); let p=CROPS[b]?.sell||PRODUCTS[b]?.sell||FISH[b]?.sell||BUGS[b]?.sell||FOSSILS[b]?.sell||5;
+    if(id!==b) p=Math.round(p*1.6);                       // ★ premium quality
     if(GS.data.shopDeal && GS.data.shopDeal.id===id) p=Math.round(p*1.5); return p; },
+  sellableId(id){ const b=baseId(id); return !!(CROPS[b]||PRODUCTS[b]||FISH[b]||BUGS[b]||FOSSILS[b]); },
   ensureDeal(){ if(GS.data.shopDeal.day!==GS.data.day){ GS.data.shopDeal.day=GS.data.day;
     const pool=[...Object.keys(CROPS),...Object.keys(PRODUCTS),...Object.keys(FISH).filter(k=>!FISH[k].junk)];
     GS.data.shopDeal.id=Util.pick(pool); } },
   openShop(){
     this.ensureDeal();
-    const sellable=Object.keys(GS.data.inventory).filter(id=>CROPS[id]||PRODUCTS[id]||FISH[id]||BUGS[id]||FOSSILS[id]);
+    const sellable=Object.keys(GS.data.inventory).filter(id=>this.sellableId(id));
     const opts=[];
     opts.push({id:'deal',icon:'⭐',title:'Penawaran hari ini: '+Inv.nameOf(GS.data.shopDeal.id)+' '+Inv.emojiOf(GS.data.shopDeal.id)+' +50% jual!',meta:'',disabled:true,onPick:()=>{}});
+    opts.push({id:'pupuk',icon:'🌿',title:'Beli Pupuk',meta:'🪙15',disabled:GS.data.coins<15,onPick:()=>{Economy.spend(15);Inv.add('pupuk',1);UI.toast('🌿 Pupuk dibeli');UI.haptic(10);setTimeout(()=>this.openShop(),120);}});
     sellable.forEach(id=>{
       const instant=Math.round(this._price(id)*0.8);
       opts.push({id, icon:Inv.emojiOf(id), title:'Jual '+Inv.nameOf(id),
@@ -2206,6 +2255,8 @@ const Economy={
     const rod=GS.data.tools.rod||1;
     if(rod<3){ const cost=[0,140,300][rod]; opts.push({id:'rod',icon:'🎣',title:'Joran Lv'+(rod+1)+' (zona hijau lebih besar, ikan langka↑)',meta:'🪙'+cost,disabled:c<cost,onPick:()=>this._buy(cost,()=>{GS.data.tools.rod=rod+1;UI.toast('Joran Lv'+(rod+1)+'! Memancing makin gampang 🎣');})}); }
     if(!GS.data.tools.shoes) opts.push({id:'shoe',icon:'👟',title:'Sepatu Lari (gerak lebih cepat)',meta:'🪙180',disabled:c<180,onPick:()=>this._buy(180,()=>{GS.data.tools.shoes=1;UI.toast('Sepatu Lari! Jalan lebih ngebut 👟');})});
+    if(!GS.data.tools.sprinkler) opts.push({id:'spr',icon:'💧',title:'Sprinkler Otomatis (siram kebun tiap pagi)',meta:'🪙500',disabled:c<500,onPick:()=>this._buy(500,()=>{GS.data.tools.sprinkler=true;UI.toast('💧 Sprinkler terpasang! Kebun disiram otomatis tiap pagi.');})});
+    if(!GS.data.greenhouse) opts.push({id:'gh',icon:'🏡',title:'Rumah Kaca (tanam lintas-musim)',meta:'🪙800',disabled:c<800,onPick:()=>this._buy(800,()=>{GS.data.greenhouse=true;World.buildGreenhouse();UI.toast('🏡 Rumah Kaca dibangun! Tanam benih apa saja kapan saja.');})});
     if(!GS.data.plotsExpanded) opts.push({id:'land',icon:'🌾',title:'Perluas lahan (+petak)',meta:'🪙200',disabled:c<200,onPick:()=>this.expandLand()});
     if(!opts.length){ UI.toast('Semua alat sudah maksimal! ✨'); return; }
     UI.choice('🔧 Upgrade Alat', opts);
@@ -2233,7 +2284,7 @@ const Economy={
   },
   // shipping bin: deposit raw goods, sold next morning at base price
   openShipping(){
-    const sellable=Object.keys(GS.data.inventory).filter(id=>CROPS[id]||PRODUCTS[id]||FISH[id]||BUGS[id]||FOSSILS[id]);
+    const sellable=Object.keys(GS.data.inventory).filter(id=>this.sellableId(id));
     if(!sellable.length){
       const total=Object.entries(GS.data.shippingBin).reduce((s,[id,n])=>s+this._price(id)*n,0);
       UI.toast(total>0?('Kotak berisi barang senilai ~🪙'+total+' (terjual besok pagi)'):'Kotak kosong 📦');
@@ -2685,9 +2736,9 @@ const Festivals={
       setTimeout(()=>UI.toast('🎉 Hari ini '+f.name+'! Temui panitia di alun-alun (papan nama).'),1400); }
   },
   count(type){ const test = type==='crop'?CROPS : type==='fish'?FISH : RECIPES;
-    return Object.keys(GS.data.inventory).filter(id=>test[id]).reduce((s,id)=>s+Inv.count(id),0); },
+    return Object.keys(GS.data.inventory).filter(id=>test[baseId(id)]).reduce((s,id)=>s+Inv.count(id),0); },
   consume(type,n){ const test = type==='crop'?CROPS : type==='fish'?FISH : RECIPES;
-    const pool=Object.keys(GS.data.inventory).filter(id=>test[id]); let left=n;
+    const pool=Object.keys(GS.data.inventory).filter(id=>test[baseId(id)]); let left=n;
     for(const id of pool){ while(left>0 && Inv.has(id)){ Inv.remove(id,1); left--; } if(left<=0) break; } },
   open(){ const f=this.today(); if(!f) return;
     if(GS.data.festival.claimed){ UI.toast('🎉 Kamu sudah ikut festival hari ini. Sampai jumpa besok!'); return; }
